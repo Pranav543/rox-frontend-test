@@ -39,7 +39,6 @@ export function MarkerPanel({
   return (
     <div className="flex w-[412px] shrink-0 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-100 px-5 py-4">
-        <h2 className="text-sm font-medium text-zinc-500">1</h2>
         <p className="text-base font-semibold text-zinc-900">Ad markers</p>
         {!episodeReady && (
           <p className="mt-1 text-xs text-amber-600">

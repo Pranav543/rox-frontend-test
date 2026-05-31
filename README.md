@@ -147,7 +147,6 @@ rox-frontend-test-3/
 | 4 | HLS + 4 qualities + interstitials | **Not done** | ffmpeg → `.m3u8` + TS segments; master playlist; ad periods as separate renditions or SCTE-35-style discontinuities |
 | 5 | Transcript scrub UI | **Not done** | ffmpeg extract audio → Whisper API → store segments; clickable transcript seeks player |
 | 6 | Hosting notes | **Not done** | Static UI on Vercel; videos on S3/R2 + CloudFront; HLS via MediaConvert or self-hosted ffmpeg worker |
-| 7 | Durable pipelines | **Not done** | Queue export jobs (BullMQ / SQS), persist job state in DB, idempotent retries |
 
 ---
 
