@@ -5,15 +5,39 @@ export function findEpisodeSegmentAtEpisodeTime(
   episodeTime: number,
   segments: TimelineSegment[]
 ): Extract<TimelineSegment, { type: "episode" }> | null {
+  return findActiveEpisodeSegmentAtTime(episodeTime, segments);
+}
+
+/**
+ * Which episode block owns this file timestamp.
+ * When pre-ad ends and post-ad starts at the same second (e.g. 30s), prefer the post-ad block.
+ */
+export function findActiveEpisodeSegmentAtTime(
+  episodeTime: number,
+  segments: TimelineSegment[]
+): Extract<TimelineSegment, { type: "episode" }> | null {
+  let best: Extract<TimelineSegment, { type: "episode" }> | null = null;
+
   for (const seg of segments) {
-    if (
-      seg.type === "episode" &&
-      episodeTime >= seg.episodeStart &&
-      episodeTime < seg.episodeEnd - 0.001
-    ) {
-      return seg;
+    if (seg.type !== "episode") continue;
+    if (episodeTime >= seg.episodeStart && episodeTime < seg.episodeEnd - 0.001) {
+      if (!best || seg.episodeStart > best.episodeStart) {
+        best = seg;
+      }
     }
   }
+
+  if (best) return best;
+
+  for (const seg of segments) {
+    if (seg.type !== "episode") continue;
+    if (Math.abs(episodeTime - seg.episodeEnd) < 0.02) {
+      if (!best || seg.episodeStart > best.episodeStart) {
+        best = seg;
+      }
+    }
+  }
+
   let last: Extract<TimelineSegment, { type: "episode" }> | null = null;
   for (const seg of segments) {
     if (seg.type === "episode" && episodeTime >= seg.episodeStart) {
@@ -46,29 +70,12 @@ export function findAdSegmentAtTimeline(
     if (
       seg.type === "ad" &&
       t >= seg.timelineStart &&
-      t <= seg.timelineEnd + 0.05
+      t < seg.timelineEnd
     ) {
       return seg;
     }
   }
   return null;
-}
-
-/** Ad segment for the current ad video (timeline at/near ad block end). */
-export function findAdSegmentForAdPlayback(
-  timelineTime: number,
-  segments: TimelineSegment[]
-): Extract<TimelineSegment, { type: "ad" }> | null {
-  const exact = findAdSegmentAtTimeline(timelineTime, segments);
-  if (exact) return exact;
-
-  let candidate: Extract<TimelineSegment, { type: "ad" }> | null = null;
-  for (const seg of segments) {
-    if (seg.type === "ad" && timelineTime >= seg.timelineStart) {
-      candidate = seg;
-    }
-  }
-  return candidate;
 }
 
 const EPISODE_END_EPS = 0.15;
@@ -81,8 +88,7 @@ export type EpisodePlaybackSync = {
 };
 
 /**
- * Map raw episode file time → timeline playhead while the episode video element is playing.
- * Detects missed ad boundaries when timeupdate jumps past a marker.
+ * Map episode file time → timeline playhead while the main video is playing.
  */
 export function syncEpisodePlayback(
   episodeTime: number,
@@ -97,50 +103,29 @@ export function syncEpisodePlayback(
     };
   }
 
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    if (seg.type !== "episode") continue;
-
-    const next = segmentAfter(seg, segments);
-    const inRange =
-      episodeTime >= seg.episodeStart && episodeTime < seg.episodeEnd;
-
-    if (inRange) {
-      const shouldTransitionToAd =
-        next?.type === "ad" && episodeTime >= seg.episodeEnd - EPISODE_END_EPS;
-      return {
-        episodeSegment: seg,
-        timelineTime: episodeTimeToTimeline(episodeTime, seg),
-        shouldTransitionToAd,
-        adSegment: shouldTransitionToAd && next.type === "ad" ? next : null,
-      };
-    }
-
-    // Only when playback jumped past the pre-ad episode block without playing the ad
-    if (next?.type === "ad" && episodeTime > seg.episodeEnd) {
-      return {
-        episodeSegment: seg,
-        timelineTime: next.timelineStart,
-        shouldTransitionToAd: true,
-        adSegment: next,
-      };
-    }
+  const epSeg = findActiveEpisodeSegmentAtTime(episodeTime, segments);
+  if (!epSeg) {
+    const last = segments[segments.length - 1];
+    return {
+      episodeSegment: null,
+      timelineTime:
+        last.type === "episode" ? last.timelineEnd : last.timelineEnd,
+      shouldTransitionToAd: false,
+      adSegment: null,
+    };
   }
 
-  const last = segments[segments.length - 1];
+  const next = segmentAfter(epSeg, segments);
+  const nearEndOfThisEpisodeBlock =
+    episodeTime >= epSeg.episodeEnd - EPISODE_END_EPS &&
+    episodeTime < epSeg.episodeEnd;
+  const shouldTransitionToAd =
+    next?.type === "ad" && nearEndOfThisEpisodeBlock;
+
   return {
-    episodeSegment:
-      last.type === "episode"
-        ? last
-        : findEpisodeSegmentAtEpisodeTime(episodeTime, segments),
-    timelineTime:
-      last.type === "episode"
-        ? episodeTimeToTimeline(
-            Math.min(episodeTime, last.episodeEnd),
-            last
-          )
-        : last.timelineEnd,
-    shouldTransitionToAd: false,
-    adSegment: null,
+    episodeSegment: epSeg,
+    timelineTime: episodeTimeToTimeline(episodeTime, epSeg),
+    shouldTransitionToAd,
+    adSegment: shouldTransitionToAd && next.type === "ad" ? next : null,
   };
 }

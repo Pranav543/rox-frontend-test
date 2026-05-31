@@ -5,7 +5,9 @@ import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { RefObject, useCallback, useRef, useState } from "react";
 
 type VideoPlayerProps = {
-  videoRef: RefObject<HTMLVideoElement | null>;
+  episodeVideoRef: RefObject<HTMLVideoElement | null>;
+  adVideoRef: RefObject<HTMLVideoElement | null>;
+  showingAd: boolean;
   playing: boolean;
   episodeTime: number;
   episodeDuration: number;
@@ -20,7 +22,9 @@ type VideoPlayerProps = {
 };
 
 export function VideoPlayer({
-  videoRef,
+  episodeVideoRef,
+  adVideoRef,
+  showingAd,
   playing,
   episodeTime,
   episodeDuration,
@@ -66,9 +70,23 @@ export function VideoPlayer({
     <div className="flex flex-1 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <div className="relative flex-1 overflow-hidden rounded-t-2xl bg-black">
         <video
-          ref={videoRef}
-          className="h-full w-full object-contain"
+          ref={episodeVideoRef}
+          className={`absolute inset-0 h-full w-full object-contain ${
+            showingAd ? "pointer-events-none opacity-0" : ""
+          }`}
           playsInline
+          preload="auto"
+          loop={false}
+          onClick={onTogglePlay}
+        />
+        <video
+          ref={adVideoRef}
+          className={`absolute inset-0 h-full w-full object-contain ${
+            showingAd ? "" : "pointer-events-none opacity-0"
+          }`}
+          playsInline
+          preload="auto"
+          loop={false}
           onClick={onTogglePlay}
         />
         {(!episodeReady || episodeLoading) && (
@@ -79,7 +97,7 @@ export function VideoPlayer({
           </div>
         )}
         {inAd && episodeReady && (
-          <span className="absolute left-3 top-3 rounded bg-orange-500/90 px-2 py-1 text-xs font-medium text-white">
+          <span className="absolute left-3 top-3 z-10 rounded bg-orange-500/90 px-2 py-1 text-xs font-medium text-white">
             Ad break
           </span>
         )}

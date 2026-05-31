@@ -1,11 +1,19 @@
 "use client";
 
+import {
+  episodeSegmentAfterAd,
+  isAdVideoFinished,
+  timelineTimeDuringAd,
+  type AdTimelineSegment,
+} from "@/lib/ad-playback";
 import { adSrcByIdFromCatalog } from "@/lib/ads";
 import { resolveAdForMarker } from "@/lib/marker-config";
 import { buildTimeline, type TimelineSegment } from "@/lib/playback";
 import {
-  findAdSegmentAtTimeline,
-  findAdSegmentForAdPlayback,
+  episodeTimeForTimeline,
+  segmentAtTimelineTime,
+} from "@/lib/playback-segment";
+import {
   findEpisodeSegmentAtEpisodeTime,
   segmentAfter,
   syncEpisodePlayback,
@@ -14,19 +22,40 @@ import type { AdPerformance } from "@/lib/marker-config";
 import type { Ad, AdMarker } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+type PlaybackMode =
+  | { kind: "episode" }
+  | { kind: "ad"; segment: AdTimelineSegment };
+
+function waitForMetadata(video: HTMLVideoElement): Promise<void> {
+  return new Promise((resolve) => {
+    if (video.readyState >= 1) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      video.removeEventListener("loadedmetadata", done);
+      video.removeEventListener("error", done);
+      resolve();
+    };
+    video.addEventListener("loadedmetadata", done);
+    video.addEventListener("error", done);
+  });
+}
+
 export function useVidpodPlayer(
   markers: AdMarker[],
   episodeSrc: string,
   adsCatalog: Ad[],
   performance: Record<string, AdPerformance> = {}
 ) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const episodeVideoRef = useRef<HTMLVideoElement>(null);
+  const adVideoRef = useRef<HTMLVideoElement>(null);
+  const [showingAd, setShowingAd] = useState(false);
   const [episodeDuration, setEpisodeDuration] = useState(0);
   const [episodeReady, setEpisodeReady] = useState(false);
   const [timelineTime, setTimelineTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const seekingRef = useRef(false);
-  const transitioningRef = useRef(false);
   const suppressVideoEventsRef = useRef(false);
   const playingRef = useRef(false);
   const timelineTimeRef = useRef(0);
@@ -37,6 +66,12 @@ export function useVidpodPlayer(
   const performanceRef = useRef(performance);
   const episodeReadyRef = useRef(false);
   const episodeDurationRef = useRef(0);
+  const playbackModeRef = useRef<PlaybackMode>({ kind: "episode" });
+  const showingAdRef = useRef(false);
+  const seekTokenRef = useRef(0);
+  const resumingFromAdRef = useRef(false);
+  /** Ad markers already played this session — prevents post-resume re-trigger loop */
+  const completedAdMarkerIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     episodeSrcRef.current = episodeSrc;
@@ -56,6 +91,9 @@ export function useVidpodPlayer(
   useEffect(() => {
     episodeDurationRef.current = episodeDuration;
   }, [episodeDuration]);
+  useEffect(() => {
+    showingAdRef.current = showingAd;
+  }, [showingAd]);
 
   const { segments, totalDuration } = useMemo(
     () =>
@@ -80,102 +118,154 @@ export function useVidpodPlayer(
     setPlaying(next);
   }, []);
 
-  const isEpisodeVideo = useCallback((video: HTMLVideoElement) => {
-    const src = video.src || "";
-    if (src.includes("/api/media/podcast/") || src.includes("podcast%2F")) {
-      return true;
-    }
-    const ep = episodeSrcRef.current;
-    return ep.length > 0 && src.includes(encodeURIComponent(ep));
-  }, []);
-
   const syncTimeline = useCallback((t: number) => {
     timelineTimeRef.current = t;
     setTimelineTime(t);
   }, []);
 
-  const playEpisode = useCallback(
-    async (episodeTime: number, autoplay: boolean) => {
-      const v = videoRef.current;
-      const src = episodeSrcRef.current;
-      if (!v || !src) return;
+  const activeVideo = useCallback(() => {
+    return showingAdRef.current ? adVideoRef.current : episodeVideoRef.current;
+  }, []);
+
+  const mountEpisode = useCallback(
+    async (
+      episodeTime: number,
+      timelinePos: number,
+      autoplay: boolean,
+      token: number
+    ): Promise<boolean> => {
+      const ep = episodeVideoRef.current;
+      const ad = adVideoRef.current;
+      if (!ep || token !== seekTokenRef.current) return false;
 
       suppressVideoEventsRef.current = true;
       seekingRef.current = true;
 
-      if (!isEpisodeVideo(v)) {
-        v.src = src;
-        await new Promise<void>((res) => {
-          const done = () => {
-            v.removeEventListener("loadedmetadata", done);
-            res();
-          };
-          v.addEventListener("loadedmetadata", done);
-          v.load();
-        });
+      if (ad) {
+        ad.pause();
+        ad.loop = false;
       }
 
-      v.currentTime = Math.max(0, episodeTime);
+      playbackModeRef.current = { kind: "episode" };
+      showingAdRef.current = false;
+      setShowingAd(false);
+      syncTimeline(timelinePos);
+      ep.currentTime = Math.max(0, episodeTime);
       seekingRef.current = false;
 
       if (autoplay) {
         try {
-          await v.play();
+          await ep.play();
+          if (token !== seekTokenRef.current) return false;
           playingRef.current = true;
           setPlaying(true);
         } catch {
           setPlayingState(false);
+          return false;
         }
       } else {
-        v.pause();
-      }
-
-      suppressVideoEventsRef.current = false;
-    },
-    [isEpisodeVideo, setPlayingState]
-  );
-
-  const playAd = useCallback(
-    async (adId: string, autoplay: boolean) => {
-      const v = videoRef.current;
-      const src = adSrcByIdFromCatalog(adsCatalogRef.current, adId);
-      if (!v || !src) return false;
-
-      suppressVideoEventsRef.current = true;
-      seekingRef.current = true;
-      v.src = src;
-      await new Promise<void>((res) => {
-        const done = () => {
-          v.removeEventListener("loadedmetadata", done);
-          res();
-        };
-        v.addEventListener("loadedmetadata", done);
-        v.load();
-      });
-      v.currentTime = 0;
-      seekingRef.current = false;
-
-      if (autoplay) {
-        try {
-          await v.play();
-          playingRef.current = true;
-          setPlaying(true);
-        } catch {
-          setPlayingState(false);
-        }
-      } else {
-        v.pause();
+        ep.pause();
       }
 
       suppressVideoEventsRef.current = false;
       return true;
     },
-    [setPlayingState]
+    [setPlayingState, syncTimeline]
   );
 
-  const goToTimelineRef = useRef<(t: number, autoplay: boolean) => Promise<void>>(
+  const mountAd = useCallback(
+    async (
+      adId: string,
+      adSeg: AdTimelineSegment,
+      offsetInAd: number,
+      timelinePos: number,
+      autoplay: boolean,
+      token: number
+    ): Promise<boolean> => {
+      const ep = episodeVideoRef.current;
+      const ad = adVideoRef.current;
+      const src = adSrcByIdFromCatalog(adsCatalogRef.current, adId);
+      if (!ep || !ad || !src || token !== seekTokenRef.current) return false;
+
+      suppressVideoEventsRef.current = true;
+      seekingRef.current = true;
+      playbackModeRef.current = { kind: "ad", segment: adSeg };
+
+      ep.pause();
+
+      ad.loop = false;
+      ad.src = src;
+      ad.load();
+      await waitForMetadata(ad);
+      if (token !== seekTokenRef.current) return false;
+
+      showingAdRef.current = true;
+      setShowingAd(true);
+      syncTimeline(timelinePos);
+      ad.currentTime = Math.max(0, offsetInAd);
+      seekingRef.current = false;
+
+      if (autoplay) {
+        try {
+          await ad.play();
+          if (token !== seekTokenRef.current) return false;
+          playingRef.current = true;
+          setPlaying(true);
+        } catch {
+          setPlayingState(false);
+          return false;
+        }
+      } else {
+        ad.pause();
+      }
+
+      suppressVideoEventsRef.current = false;
+      return true;
+    },
+    [setPlayingState, syncTimeline]
+  );
+
+  const resumeAfterAdRef = useRef<(adSeg: AdTimelineSegment) => Promise<void>>(
     async () => {}
   );
+
+  const resumeAfterAd = useCallback(
+    async (adSeg: AdTimelineSegment) => {
+      if (resumingFromAdRef.current) return;
+      if (playbackModeRef.current.kind !== "ad") return;
+
+      const resume = episodeSegmentAfterAd(adSeg, segmentsRef.current);
+      if (!resume) return;
+
+      resumingFromAdRef.current = true;
+      const token = ++seekTokenRef.current;
+
+      const ad = adVideoRef.current;
+      if (ad) {
+        ad.pause();
+        ad.currentTime = 0;
+      }
+
+      try {
+        await mountEpisode(
+          resume.episodeStart,
+          resume.timelineStart,
+          true,
+          token
+        );
+        completedAdMarkerIdsRef.current.add(adSeg.markerId);
+      } finally {
+        resumingFromAdRef.current = false;
+      }
+    },
+    [mountEpisode]
+  );
+
+  resumeAfterAdRef.current = resumeAfterAd;
+
+  const goToTimelineRef = useRef<
+    (t: number, autoplay: boolean) => Promise<void>
+  >(async () => {});
 
   const goToTimeline = useCallback(
     async (t: number, autoplay: boolean) => {
@@ -184,56 +274,61 @@ export function useVidpodPlayer(
       const segs = segmentsRef.current;
       if (segs.length === 0) return;
 
-      const clamped = Math.max(0, Math.min(t, segs[segs.length - 1].timelineEnd));
-      let seg: TimelineSegment | null = null;
+      const seg = segmentAtTimelineTime(t, segs);
+      if (!seg) return;
+
+      const token = ++seekTokenRef.current;
+      resumingFromAdRef.current = false;
+
       for (const s of segs) {
-        if (clamped >= s.timelineStart && clamped < s.timelineEnd) {
-          seg = s;
-          break;
+        if (s.type === "ad" && t < s.timelineStart) {
+          completedAdMarkerIdsRef.current.delete(s.markerId);
         }
       }
-      if (!seg) seg = segs[segs.length - 1];
 
-      syncTimeline(clamped);
+      const clamped = Math.max(
+        seg.timelineStart,
+        Math.min(t, seg.timelineEnd - 0.001)
+      );
 
       if (seg.type === "episode") {
-        const epTime = seg.episodeStart + (clamped - seg.timelineStart);
-        await playEpisode(epTime, autoplay);
+        const epTime = episodeTimeForTimeline(clamped, seg);
+        await mountEpisode(epTime, clamped, autoplay, token);
         return;
       }
 
-      if (seg.type === "ad") {
-        const marker = markersRef.current.find((m) => m.id === seg.markerId);
-        const adId =
-          seg.adId ||
-          (marker
-            ? resolveAdForMarker(marker, {
-                forPlayback: true,
-                performance: performanceRef.current,
-              })
-            : null);
-        if (adId) await playAd(adId, autoplay);
-      }
+      const marker = markersRef.current.find((m) => m.id === seg.markerId);
+      const adId =
+        seg.adId ||
+        (marker
+          ? resolveAdForMarker(marker, {
+              forPlayback: true,
+              performance: performanceRef.current,
+            })
+          : null);
+
+      if (!adId) return;
+
+      await mountAd(
+        adId,
+        seg,
+        clamped - seg.timelineStart,
+        clamped,
+        autoplay,
+        token
+      );
     },
-    [playAd, playEpisode, syncTimeline]
+    [mountAd, mountEpisode]
   );
 
   goToTimelineRef.current = goToTimeline;
 
-  const transitionToNext = useCallback(
-    async (after: TimelineSegment) => {
-      if (transitioningRef.current) return;
-      const next = segmentAfter(after, segmentsRef.current);
-      if (!next || !playingRef.current) return;
-
-      transitioningRef.current = true;
-      suppressVideoEventsRef.current = true;
-      try {
-        await goToTimelineRef.current(next.timelineStart, true);
-      } finally {
-        transitioningRef.current = false;
-        suppressVideoEventsRef.current = false;
-      }
+  const transitionToAd = useCallback(
+    async (epSeg: Extract<TimelineSegment, { type: "episode" }>) => {
+      if (!playingRef.current || resumingFromAdRef.current) return;
+      const next = segmentAfter(epSeg, segmentsRef.current);
+      if (next?.type !== "ad") return;
+      await goToTimelineRef.current(next.timelineStart, true);
     },
     []
   );
@@ -243,12 +338,13 @@ export function useVidpodPlayer(
   }, []);
 
   const togglePlay = useCallback(() => {
-    const v = videoRef.current;
+    const v = activeVideo();
     if (!v || !episodeReadyRef.current) return;
 
     if (playingRef.current) {
       suppressVideoEventsRef.current = true;
-      v.pause();
+      episodeVideoRef.current?.pause();
+      adVideoRef.current?.pause();
       suppressVideoEventsRef.current = false;
       setPlayingState(false);
       return;
@@ -256,88 +352,88 @@ export function useVidpodPlayer(
 
     setPlayingState(true);
     void goToTimelineRef.current(timelineTimeRef.current, true);
-  }, [setPlayingState]);
+  }, [activeVideo, setPlayingState]);
 
   const skip = useCallback((delta: number) => {
     seek(timelineTimeRef.current + delta);
   }, [seek]);
 
   const tickPlayback = useCallback(() => {
-    if (seekingRef.current || suppressVideoEventsRef.current || transitioningRef.current) {
-      return;
-    }
-
-    const v = videoRef.current;
-    if (!v) return;
+    if (seekingRef.current || suppressVideoEventsRef.current) return;
+    if (resumingFromAdRef.current) return;
 
     const segs = segmentsRef.current;
     if (segs.length === 0) return;
 
-    if (isEpisodeVideo(v)) {
-      const epTime = v.currentTime;
-      const sync = syncEpisodePlayback(epTime, segs);
-      syncTimeline(sync.timelineTime);
+    const mode = playbackModeRef.current;
 
-      if (playingRef.current && sync.shouldTransitionToAd && sync.adSegment) {
-        const epSeg = sync.episodeSegment;
-        if (epSeg) void transitionToNext(epSeg);
+    if (mode.kind === "ad") {
+      const ad = adVideoRef.current;
+      if (!ad) return;
+
+      syncTimeline(timelineTimeDuringAd(mode.segment, ad.currentTime));
+
+      if (isAdVideoFinished(ad.currentTime, ad.duration) || ad.ended) {
+        void resumeAfterAdRef.current(mode.segment);
       }
       return;
     }
 
-    const t = timelineTimeRef.current;
-    const adSeg = findAdSegmentForAdPlayback(t, segs);
-    if (!adSeg) return;
+    const ep = episodeVideoRef.current;
+    if (!ep) return;
 
-    const newT = Math.min(
-      adSeg.timelineStart + v.currentTime,
-      adSeg.timelineEnd
-    );
-    syncTimeline(newT);
+    const epTime = ep.currentTime;
+    const sync = syncEpisodePlayback(epTime, segs);
+    syncTimeline(sync.timelineTime);
 
-    const dur = v.duration;
     if (
       playingRef.current &&
-      Number.isFinite(dur) &&
-      dur > 0 &&
-      (v.ended || v.currentTime >= dur - 0.2)
+      sync.shouldTransitionToAd &&
+      sync.adSegment &&
+      !completedAdMarkerIdsRef.current.has(sync.adSegment.markerId)
     ) {
-      void transitionToNext(adSeg);
+      const epSeg = sync.episodeSegment;
+      if (epSeg) void transitionToAd(epSeg);
     }
-  }, [isEpisodeVideo, syncTimeline, transitionToNext]);
+  }, [syncTimeline, transitionToAd]);
 
   const tickPlaybackRef = useRef(tickPlayback);
   tickPlaybackRef.current = tickPlayback;
 
   const handleEnded = useCallback(() => {
-    if (seekingRef.current || transitioningRef.current) return;
+    if (seekingRef.current || resumingFromAdRef.current) return;
 
-    const v = videoRef.current;
-    if (!v || !playingRef.current) return;
+    const mode = playbackModeRef.current;
 
-    const segs = segmentsRef.current;
-    const t = timelineTimeRef.current;
-
-    if (!isEpisodeVideo(v)) {
-      const adSeg = findAdSegmentForAdPlayback(t, segs);
-      if (adSeg) void transitionToNext(adSeg);
+    if (mode.kind === "ad") {
+      void resumeAfterAdRef.current(mode.segment);
       return;
     }
 
-    const epSeg = findEpisodeSegmentAtEpisodeTime(v.currentTime, segs);
+    if (!playingRef.current) return;
+
+    const ep = episodeVideoRef.current;
+    if (!ep) return;
+
+    const segs = segmentsRef.current;
+    const epSeg = findEpisodeSegmentAtEpisodeTime(ep.currentTime, segs);
     if (epSeg) {
       const next = segmentAfter(epSeg, segs);
       if (next?.type === "ad") {
-        void transitionToNext(epSeg);
+        void transitionToAd(epSeg);
       } else {
         setPlayingState(false);
       }
     }
-  }, [isEpisodeVideo, setPlayingState, transitionToNext]);
+  }, [setPlayingState, transitionToAd]);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
+    const ep = episodeVideoRef.current;
+    const ad = adVideoRef.current;
+    if (!ep) return;
+
+    ep.loop = false;
+    if (ad) ad.loop = false;
 
     const onPlay = () => {
       if (suppressVideoEventsRef.current || seekingRef.current) return;
@@ -345,38 +441,55 @@ export function useVidpodPlayer(
     };
 
     const onPause = () => {
+      if (suppressVideoEventsRef.current || seekingRef.current) return;
+      if (resumingFromAdRef.current) return;
+
+      const v = activeVideo();
+      if (!v) return;
+      if (v.ended) return;
       if (
-        suppressVideoEventsRef.current ||
-        seekingRef.current ||
-        transitioningRef.current
+        showingAdRef.current &&
+        isAdVideoFinished(v.currentTime, v.duration)
       ) {
         return;
       }
-      if (v.ended) return;
       setPlayingState(false);
     };
 
-    const onLoaded = () => {
-      if (isEpisodeVideo(v) && Number.isFinite(v.duration) && v.duration > 0) {
-        setEpisodeDuration(v.duration);
+    const onEpisodeMeta = () => {
+      if (Number.isFinite(ep.duration) && ep.duration > 0) {
+        setEpisodeDuration(ep.duration);
         setEpisodeReady(true);
       }
     };
 
-    v.addEventListener("play", onPlay);
-    v.addEventListener("pause", onPause);
-    v.addEventListener("loadedmetadata", onLoaded);
-    v.addEventListener("timeupdate", tickPlayback);
-    v.addEventListener("ended", handleEnded);
+    ep.addEventListener("play", onPlay);
+    ep.addEventListener("pause", onPause);
+    ep.addEventListener("loadedmetadata", onEpisodeMeta);
+    ep.addEventListener("timeupdate", tickPlayback);
+    ep.addEventListener("ended", handleEnded);
+
+    if (ad) {
+      ad.addEventListener("play", onPlay);
+      ad.addEventListener("pause", onPause);
+      ad.addEventListener("timeupdate", tickPlayback);
+      ad.addEventListener("ended", handleEnded);
+    }
 
     return () => {
-      v.removeEventListener("play", onPlay);
-      v.removeEventListener("pause", onPause);
-      v.removeEventListener("loadedmetadata", onLoaded);
-      v.removeEventListener("timeupdate", tickPlayback);
-      v.removeEventListener("ended", handleEnded);
+      ep.removeEventListener("play", onPlay);
+      ep.removeEventListener("pause", onPause);
+      ep.removeEventListener("loadedmetadata", onEpisodeMeta);
+      ep.removeEventListener("timeupdate", tickPlayback);
+      ep.removeEventListener("ended", handleEnded);
+      if (ad) {
+        ad.removeEventListener("play", onPlay);
+        ad.removeEventListener("pause", onPause);
+        ad.removeEventListener("timeupdate", tickPlayback);
+        ad.removeEventListener("ended", handleEnded);
+      }
     };
-  }, [episodeReady, handleEnded, tickPlayback, isEpisodeVideo, setPlayingState]);
+  }, [activeVideo, episodeReady, handleEnded, tickPlayback, setPlayingState]);
 
   useEffect(() => {
     if (!playing || !episodeReady) return;
@@ -391,39 +504,53 @@ export function useVidpodPlayer(
   }, [playing, episodeReady]);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !episodeSrc) {
+    const ep = episodeVideoRef.current;
+    const ad = adVideoRef.current;
+    if (!ep || !episodeSrc) {
       setEpisodeReady(false);
       setEpisodeDuration(0);
+      playbackModeRef.current = { kind: "episode" };
+      setShowingAd(false);
       return;
     }
 
+    ++seekTokenRef.current;
     suppressVideoEventsRef.current = true;
     seekingRef.current = true;
     setEpisodeReady(false);
     setEpisodeDuration(0);
-    v.pause();
+    playbackModeRef.current = { kind: "episode" };
+    showingAdRef.current = false;
+    setShowingAd(false);
+    resumingFromAdRef.current = false;
+    completedAdMarkerIdsRef.current.clear();
+    ep.pause();
+    ad?.pause();
+    ep.loop = false;
+    if (ad) ad.loop = false;
     setPlayingState(false);
     syncTimeline(0);
-    v.src = episodeSrc;
-    v.load();
+    ep.src = episodeSrc;
+    ep.load();
 
     const onMeta = () => {
-      if (Number.isFinite(v.duration) && v.duration > 0) {
-        setEpisodeDuration(v.duration);
+      if (Number.isFinite(ep.duration) && ep.duration > 0) {
+        setEpisodeDuration(ep.duration);
         setEpisodeReady(true);
       }
       seekingRef.current = false;
       suppressVideoEventsRef.current = false;
-      v.removeEventListener("loadedmetadata", onMeta);
+      ep.removeEventListener("loadedmetadata", onMeta);
     };
-    v.addEventListener("loadedmetadata", onMeta);
+    ep.addEventListener("loadedmetadata", onMeta);
 
-    return () => v.removeEventListener("loadedmetadata", onMeta);
+    return () => ep.removeEventListener("loadedmetadata", onMeta);
   }, [episodeSrc, setPlayingState, syncTimeline]);
 
   return {
-    videoRef,
+    episodeVideoRef,
+    adVideoRef,
+    showingAd,
     episodeDuration,
     episodeReady,
     totalDuration,

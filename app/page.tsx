@@ -406,7 +406,9 @@ export default function VidpodPage() {
               onPickAd={setAdPickerMarkerId}
             />
             <VideoPlayer
-              videoRef={player.videoRef}
+              episodeVideoRef={player.episodeVideoRef}
+              adVideoRef={player.adVideoRef}
+              showingAd={player.showingAd}
               playing={player.playing}
               episodeTime={playhead.episodeTime}
               episodeDuration={player.episodeDuration}
