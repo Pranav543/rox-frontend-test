@@ -21,6 +21,9 @@ const WAVEFORM = generateWaveformBars(200);
 const MIN_PPS = 4;
 const MAX_PPS = 48;
 const TRACK_H = 112;
+const RULER_H = 24;
+const PLAYHEAD_HANDLE_W = 18;
+const PLAYHEAD_HANDLE_H = 22;
 
 type TimelineProps = {
   markers: AdMarker[];
@@ -87,6 +90,60 @@ function TimelineMarker({
   );
 }
 
+function Playhead({
+  left,
+  timeLabel,
+  episodeReady,
+  onScrubStart,
+}: {
+  left: number;
+  timeLabel: string;
+  episodeReady: boolean;
+  onScrubStart: (e: React.PointerEvent) => void;
+}) {
+  return (
+    <div
+      data-playhead
+      className="pointer-events-none absolute z-50"
+      style={{
+        left,
+        top: 0,
+        bottom: 0,
+        width: 0,
+      }}
+      aria-hidden={!episodeReady}
+    >
+      <div
+        data-playhead-handle
+        role="slider"
+        aria-label="Playhead"
+        aria-valuetext={timeLabel}
+        tabIndex={episodeReady ? 0 : -1}
+        className={`pointer-events-auto absolute left-0 flex -translate-x-1/2 touch-none flex-col items-center ${
+          episodeReady ? "cursor-grab active:cursor-grabbing" : "cursor-default opacity-50"
+        }`}
+        style={{ top: 0, width: PLAYHEAD_HANDLE_W }}
+        onPointerDown={onScrubStart}
+      >
+        <div
+          className="flex w-full items-center justify-center rounded-md border-2 border-red-700 bg-red-500 shadow-md"
+          style={{ height: PLAYHEAD_HANDLE_H }}
+        >
+          <div className="h-2.5 w-1 rounded-full bg-red-100" />
+        </div>
+        <span className="mt-0.5 whitespace-nowrap rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
+          {timeLabel}
+        </span>
+      </div>
+
+      <div
+        className="pointer-events-none absolute left-0 w-[2px] -translate-x-1/2 bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.85)]"
+        style={{ top: RULER_H + 8, bottom: 0 }}
+      />
+    </div>
+  );
+}
+
 export function Timeline({
   markers,
   adsCatalog,
@@ -109,6 +166,7 @@ export function Timeline({
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const scrubbingRef = useRef(false);
+  const playheadScrubbingRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<{
     id: string;
     episodeTime: number;
@@ -178,10 +236,59 @@ export function Timeline({
     [clientXToTimelineX, onSeek, pixelsPerSecond, totalDuration]
   );
 
-  const onTrackPointerDown = useCallback(
+  const onPlayheadPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (dragRef.current || !episodeReady || totalDuration <= 0) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+
+      const handle = e.currentTarget as HTMLElement;
+      handle.setPointerCapture(e.pointerId);
+      playheadScrubbingRef.current = true;
+      seekFromClientX(e.clientX);
+
+      const onMove = (ev: PointerEvent) => {
+        if (!playheadScrubbingRef.current) return;
+        seekFromClientX(ev.clientX);
+      };
+
+      const onUp = (ev: PointerEvent) => {
+        playheadScrubbingRef.current = false;
+        try {
+          handle.releasePointerCapture(ev.pointerId);
+        } catch {
+          /* ok */
+        }
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [episodeReady, seekFromClientX, totalDuration]
+  );
+
+  const onTrackPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (
+        dragRef.current ||
+        playheadScrubbingRef.current ||
+        !episodeReady ||
+        totalDuration <= 0
+      ) {
+        return;
+      }
       if ((e.target as HTMLElement).closest("[data-marker]")) return;
+      if ((e.target as HTMLElement).closest("[data-playhead]")) return;
+
+      const x = clientXToTimelineX(e.clientX);
+      const nearPlayhead =
+        Math.abs(x - playheadLeft) <= PLAYHEAD_HANDLE_W / 2 + 6;
+      if (nearPlayhead) return;
 
       scrubbingRef.current = true;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -208,7 +315,7 @@ export function Timeline({
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
     },
-    [episodeReady, seekFromClientX, totalDuration]
+    [clientXToTimelineX, episodeReady, playheadLeft, seekFromClientX, totalDuration]
   );
 
   const onMarkerPointerDown = useCallback(
@@ -362,12 +469,15 @@ export function Timeline({
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto px-4 pb-4">
-        <div style={{ width: trackWidth, minWidth: "100%" }} className="relative">
-          <div className="relative mb-2 h-6">
+        <div
+          style={{ width: trackWidth, minWidth: "100%" }}
+          className="relative"
+        >
+          <div className="relative mb-2" style={{ height: RULER_H }}>
             {ticks.map((sec) => (
               <div
                 key={sec}
-                className="absolute border-l border-zinc-200 pl-1 text-[10px] text-zinc-400"
+                className="pointer-events-none absolute border-l border-zinc-200 pl-1 text-[10px] text-zinc-400"
                 style={{ left: sec * pixelsPerSecond }}
               >
                 {formatTime(sec)}
@@ -407,16 +517,14 @@ export function Timeline({
                 onPointerDown={(e) => onMarkerPointerDown(e, marker)}
               />
             ))}
-
-            <div
-              className="pointer-events-none absolute top-0 bottom-0 z-30 w-0.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]"
-              style={{ left: playheadLeft }}
-            >
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-900 shadow">
-                {formatTime(playheadLabels.episodeTime)}
-              </div>
-            </div>
           </div>
+
+          <Playhead
+            left={playheadLeft}
+            timeLabel={formatTime(playheadLabels.episodeTime)}
+            episodeReady={episodeReady}
+            onScrubStart={onPlayheadPointerDown}
+          />
         </div>
       </div>
     </div>
