@@ -6,7 +6,10 @@ import { runFfmpeg } from "./ffmpeg";
 
 export const EXPORT_DIR = path.join(process.cwd(), "data", "exports");
 
+const MAP_AV = ["-map", "0:v:0", "-map", "0:a:0?"];
+
 const ENCODE_ARGS = [
+  ...MAP_AV,
   "-c:v",
   "libx264",
   "-preset",
@@ -23,6 +26,8 @@ const ENCODE_ARGS = [
   "44100",
   "-ac",
   "2",
+  "-avoid_negative_ts",
+  "make_zero",
   "-movflags",
   "+faststart",
 ];
@@ -33,6 +38,7 @@ function ensureExportDir() {
   }
 }
 
+/** Input-first seek so episode audio does not bleed from before the cut point. */
 async function extractEpisodePart(
   input: string,
   startSec: number,
@@ -41,10 +47,10 @@ async function extractEpisodePart(
 ) {
   await runFfmpeg([
     "-y",
-    "-ss",
-    String(startSec),
     "-i",
     input,
+    "-ss",
+    String(startSec),
     "-t",
     String(durationSec),
     ...ENCODE_ARGS,
@@ -63,11 +69,13 @@ async function extractAdPart(
     input,
     "-t",
     String(durationSec),
+    "-shortest",
     ...ENCODE_ARGS,
     output,
   ]);
 }
 
+/** Re-encode concat so segment timestamps/audio stay in sync (no episode bleed under ads). */
 async function concatParts(partPaths: string[], output: string) {
   const listPath = path.join(path.dirname(output), `concat-${randomUUID()}.txt`);
   const listBody = partPaths
@@ -84,20 +92,27 @@ async function concatParts(partPaths: string[], output: string) {
       "0",
       "-i",
       listPath,
-      "-c",
-      "copy",
-      output,
-    ]);
-  } catch {
-    await runFfmpeg([
-      "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      ...ENCODE_ARGS,
+      ...MAP_AV,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-ar",
+      "44100",
+      "-ac",
+      "2",
+      "-reset_timestamps",
+      "1",
+      "-movflags",
+      "+faststart",
       output,
     ]);
   } finally {

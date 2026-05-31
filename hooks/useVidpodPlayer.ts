@@ -146,6 +146,8 @@ export function useVidpodPlayer(
         ad.loop = false;
       }
 
+      ep.muted = false;
+
       playbackModeRef.current = { kind: "episode" };
       showingAdRef.current = false;
       setShowingAd(false);
@@ -192,8 +194,10 @@ export function useVidpodPlayer(
       playbackModeRef.current = { kind: "ad", segment: adSeg };
 
       ep.pause();
+      ep.muted = true;
 
       ad.loop = false;
+      ad.muted = false;
       ad.src = src;
       ad.load();
       await waitForMetadata(ad);

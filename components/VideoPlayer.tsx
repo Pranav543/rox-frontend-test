@@ -86,6 +86,7 @@ export function VideoPlayer({
           className={`absolute inset-0 h-full w-full object-contain ${
             showingAd ? "pointer-events-none opacity-0" : ""
           }`}
+          muted={showingAd}
           playsInline
           preload="auto"
           loop={false}
