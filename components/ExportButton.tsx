@@ -1,5 +1,6 @@
 "use client";
 
+import { consumeExportStream } from "@/lib/export-stream";
 import { formatTime } from "@/lib/format-time";
 import { Check, Download, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +15,8 @@ const SUCCESS_DISMISS_MS = 10_000;
 export function ExportButton({ disabled, disabledReason }: Props) {
   const [ffmpegOk, setFfmpegOk] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressStage, setProgressStage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
     filename: string;
@@ -53,6 +56,8 @@ export function ExportButton({ disabled, disabledReason }: Props) {
   const onExport = useCallback(async () => {
     setError(null);
     setSuccess(null);
+    setProgress(0);
+    setProgressStage("Starting export…");
     if (dismissTimerRef.current) {
       clearTimeout(dismissTimerRef.current);
       dismissTimerRef.current = null;
@@ -60,36 +65,42 @@ export function ExportButton({ disabled, disabledReason }: Props) {
     setExporting(true);
     try {
       const res = await fetch("/api/export", { method: "POST" });
-      const data = (await res.json()) as {
-        error?: string;
-        downloadUrl?: string;
-        filename?: string;
-        durationSec?: number;
-      };
 
+      const contentType = res.headers.get("content-type") ?? "";
       if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Export failed");
       }
 
-      if (!data.downloadUrl) {
-        throw new Error("No download URL returned");
+      if (!contentType.includes("ndjson")) {
+        throw new Error("Unexpected export response");
       }
 
-      const filename = data.filename ?? "vidpod-export.mp4";
+      const result = await consumeExportStream(res, {
+        onProgress: (event) => {
+          setProgress(event.percent);
+          setProgressStage(event.stage);
+        },
+      });
+
       const a = document.createElement("a");
-      a.href = data.downloadUrl;
-      a.download = filename;
+      a.href = result.downloadUrl;
+      a.download = result.filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
 
+      setProgress(100);
+      setProgressStage("Export complete");
       setSuccess({
-        filename,
-        durationSec: data.durationSec ?? 0,
+        filename: result.filename,
+        durationSec: result.durationSec,
       });
       scheduleSuccessDismiss();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
+      setProgress(0);
+      setProgressStage("");
     } finally {
       setExporting(false);
     }
@@ -121,9 +132,25 @@ export function ExportButton({ disabled, disabledReason }: Props) {
       </button>
 
       {exporting ? (
-        <p className="text-center text-xs text-zinc-500" role="status">
-          Stitching episode and ads — this may take a minute…
-        </p>
+        <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-2 text-xs text-zinc-600">
+            <span className="min-w-0 truncate">{progressStage || "Exporting…"}</span>
+            <span className="shrink-0 tabular-nums font-medium">{progress}%</span>
+          </div>
+          <div
+            className="h-2 overflow-hidden rounded-full bg-zinc-200"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+            aria-label="Export progress"
+          >
+            <div
+              className="h-full rounded-full bg-zinc-900 transition-[width] duration-300 ease-out"
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
+        </div>
       ) : null}
 
       {success ? (

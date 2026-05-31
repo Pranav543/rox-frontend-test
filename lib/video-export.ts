@@ -1,8 +1,18 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import type { ExportProgressUpdate } from "./export-progress";
+import {
+  computeExportProgress,
+  countExportSteps,
+  segmentProgressLabel,
+} from "./export-progress";
 import type { ExportSegment } from "./export-plan";
 import { runFfmpeg } from "./ffmpeg";
+
+export type { ExportProgressUpdate } from "./export-progress";
+
+export type ExportProgressCallback = (update: ExportProgressUpdate) => void;
 
 export const EXPORT_DIR = path.join(process.cwd(), "data", "exports");
 
@@ -126,17 +136,28 @@ async function concatParts(partPaths: string[], output: string) {
 
 export async function renderExportToFile(
   segments: ExportSegment[],
-  outputPath: string
+  outputPath: string,
+  onProgress?: ExportProgressCallback
 ): Promise<void> {
   if (segments.length === 0) {
     throw new Error("Nothing to export");
   }
+
+  const totalSteps = countExportSteps(segments);
+  let completedSteps = 0;
+  const emit = (stage: string) => {
+    onProgress?.(computeExportProgress(completedSteps, totalSteps, stage));
+  };
+
+  emit("Preparing export…");
 
   ensureExportDir();
   const tmpDir = path.join(EXPORT_DIR, `tmp-${randomUUID()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
 
   const partPaths: string[] = [];
+  let clipIndex = 0;
+  const clipTotal = totalSteps - 1;
 
   try {
     for (let i = 0; i < segments.length; i++) {
@@ -146,14 +167,20 @@ export async function renderExportToFile(
       if (seg.type === "episode") {
         const dur = seg.endSec - seg.startSec;
         if (dur <= 0.05) continue;
+        clipIndex++;
+        emit(segmentProgressLabel(seg, clipIndex, clipTotal));
         await extractEpisodePart(seg.file, seg.startSec, dur, part);
       } else {
         if (seg.durationSec <= 0.05) continue;
+        clipIndex++;
+        emit(segmentProgressLabel(seg, clipIndex, clipTotal));
         await extractAdPart(seg.file, seg.durationSec, part);
       }
 
       if (fs.existsSync(part)) {
         partPaths.push(part);
+        completedSteps++;
+        emit(segmentProgressLabel(seg, clipIndex, clipTotal));
       }
     }
 
@@ -161,7 +188,11 @@ export async function renderExportToFile(
       throw new Error("No video segments were generated");
     }
 
+    completedSteps = Math.min(completedSteps, totalSteps - 1);
+    emit("Merging segments…");
     await concatParts(partPaths, outputPath);
+    completedSteps = totalSteps;
+    onProgress?.(computeExportProgress(totalSteps, totalSteps, "Export complete"));
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

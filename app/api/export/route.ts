@@ -13,28 +13,29 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+function jsonError(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 export async function POST() {
   if (!(await isFfmpegAvailable())) {
-    return NextResponse.json(
-      {
-        error:
-          "ffmpeg is not installed. Install ffmpeg to export MP4 (e.g. brew install ffmpeg).",
-      },
-      { status: 503 }
+    return jsonError(
+      "ffmpeg is not installed. Install ffmpeg to export MP4 (e.g. brew install ffmpeg).",
+      503
     );
   }
 
   const episodeRel = getEpisodeFilename();
   const episodePath = safeMediaPath(episodeRel);
   if (!episodePath) {
-    return NextResponse.json({ error: "Episode video file not found" }, { status: 400 });
+    return jsonError("Episode video file not found", 400);
   }
 
   const markers = listMarkers().filter((m) => m.adIds?.length);
   if (markers.length === 0) {
-    return NextResponse.json(
-      { error: "Add at least one ad marker with ads assigned before exporting" },
-      { status: 400 }
+    return jsonError(
+      "Add at least one ad marker with ads assigned before exporting",
+      400
     );
   }
 
@@ -43,7 +44,7 @@ export async function POST() {
     episodeDuration = await probeMediaDurationSec(episodePath);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not read episode duration";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    return jsonError(msg, 400);
   }
 
   const catalog = getAdsCatalog();
@@ -61,7 +62,7 @@ export async function POST() {
   }
 
   if (segments.length === 0) {
-    return NextResponse.json({ error: "Nothing to export" }, { status: 400 });
+    return jsonError("Nothing to export", 400);
   }
 
   const resolvedSegments = await resolveAdClipDurations(segments);
@@ -74,18 +75,45 @@ export async function POST() {
   const filename = `vidpod-export-${Date.now()}.mp4`;
   const outputPath = path.join(EXPORT_DIR, filename);
 
-  try {
-    await renderExportToFile(resolvedSegments, outputPath);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Export failed";
-    return NextResponse.json({ error: msg }, { status: 500 });
-  }
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emit = (payload: object) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+      };
 
-  return NextResponse.json({
-    filename,
-    downloadUrl: `/api/export/${filename}`,
-    durationSec: exportDurationSec,
-    segmentCount: resolvedSegments.length,
+      try {
+        await renderExportToFile(resolvedSegments, outputPath, (update) => {
+          emit({
+            type: "progress",
+            percent: update.percent,
+            stage: update.stage,
+            step: update.step,
+            totalSteps: update.totalSteps,
+          });
+        });
+
+        emit({
+          type: "done",
+          filename,
+          downloadUrl: `/api/export/${filename}`,
+          durationSec: exportDurationSec,
+          segmentCount: resolvedSegments.length,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Export failed";
+        emit({ type: "error", error: msg });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-store",
+    },
   });
 }
 

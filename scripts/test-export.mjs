@@ -30,7 +30,7 @@ if (ff.status !== 0) {
   ok(`ffmpeg: ${ff.stdout.trim()}`);
 }
 
-const vitest = spawnSync("npm", ["test", "--", "lib/export-plan.test.ts"], {
+const vitest = spawnSync("npm", ["test", "--", "lib/export-plan.test.ts", "lib/export-progress.test.ts", "lib/export-stream.test.ts"], {
   cwd: root,
   encoding: "utf8",
   stdio: "pipe",
@@ -65,10 +65,50 @@ if (!status.ffmpegAvailable) {
 }
 
 const postRes = await fetch(`${BASE}/api/export`, { method: "POST" });
-const body = await postRes.json();
 if (!postRes.ok) {
-  fail(`POST /api/export → ${postRes.status}: ${body.error ?? JSON.stringify(body)}`);
+  const errBody = await postRes.json().catch(() => ({}));
+  fail(`POST /api/export → ${postRes.status}: ${errBody.error ?? JSON.stringify(errBody)}`);
 }
+
+const contentType = postRes.headers.get("content-type") ?? "";
+if (!contentType.includes("ndjson")) {
+  fail(`POST /api/export expected application/x-ndjson, got ${contentType}`);
+}
+
+let body = null;
+let lastProgress = null;
+const reader = postRes.body.getReader();
+const decoder = new TextDecoder();
+let buffer = "";
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
+  const lines = buffer.split("\n");
+  buffer = lines.pop() ?? "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const event = JSON.parse(line);
+    if (event.type === "progress") {
+      lastProgress = event;
+    } else if (event.type === "done") {
+      body = event;
+    } else if (event.type === "error") {
+      fail(`Export stream error: ${event.error}`);
+    }
+  }
+}
+if (buffer.trim()) {
+  const event = JSON.parse(buffer);
+  if (event.type === "done") body = event;
+  if (event.type === "error") fail(`Export stream error: ${event.error}`);
+}
+if (!body?.downloadUrl) fail("Export stream missing done event");
+
+if (!lastProgress || lastProgress.percent < 1) {
+  fail("Export stream did not emit progress events");
+}
+ok(`Export progress events received (final ${lastProgress.percent}%)`);
 
 ok(`POST export: ${body.filename} (${body.segmentCount} segments, ~${Math.round(body.durationSec)}s)`);
 
