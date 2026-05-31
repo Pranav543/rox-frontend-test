@@ -15,7 +15,7 @@ import {
 } from "@/lib/playback";
 import type { Ad, AdMarker } from "@/lib/types";
 import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const WAVEFORM = generateWaveformBars(200);
 const MIN_PPS = 4;
@@ -30,6 +30,7 @@ type TimelineProps = {
   adsCatalog: Ad[];
   episodeDuration: number;
   episodeReady: boolean;
+  playing: boolean;
   performance: Record<string, AdPerformance>;
   timelineTime: number;
   selectedId: string | null;
@@ -74,7 +75,7 @@ function TimelineMarker({
       role="button"
       tabIndex={0}
       style={{ left, width: Math.max(width, 36), zIndex: selected ? 25 : 20 }}
-      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col rounded-md border-2 ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
+      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col rounded-md border-2 transition-[left,width] duration-200 ease-out ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
         selected ? "ring-2 ring-white ring-offset-1 ring-offset-zinc-900" : ""
       }`}
       onPointerDown={onPointerDown}
@@ -149,6 +150,7 @@ export function Timeline({
   adsCatalog,
   episodeDuration,
   episodeReady,
+  playing,
   performance,
   timelineTime,
   selectedId,
@@ -199,6 +201,20 @@ export function Timeline({
 
   const trackWidth = Math.max(totalDuration * pixelsPerSecond, 800);
   const playheadLeft = timelineTime * pixelsPerSecond;
+
+  useEffect(() => {
+    if (!playing || !scrollRef.current || totalDuration <= 0) return;
+    const el = scrollRef.current;
+    const margin = 80;
+    const viewLeft = el.scrollLeft;
+    const viewRight = viewLeft + el.clientWidth;
+    if (playheadLeft < viewLeft + margin || playheadLeft > viewRight - margin) {
+      el.scrollTo({
+        left: Math.max(0, playheadLeft - el.clientWidth / 3),
+        behavior: "smooth",
+      });
+    }
+  }, [playheadLeft, playing, totalDuration]);
 
   const markerLayouts = useMemo(() => {
     return displayMarkers.map((m) => {

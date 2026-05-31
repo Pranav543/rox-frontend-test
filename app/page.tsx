@@ -51,6 +51,7 @@ export default function VidpodPage() {
   const [performance, setPerformance] = useState<Record<string, AdPerformance>>({});
   const [adPickerMarkerId, setAdPickerMarkerId] = useState<string | null>(null);
   const [episodeLoading, setEpisodeLoading] = useState(false);
+  const [volume, setVolume] = useState(0.85);
   const loadedRef = useRef(false);
 
   const { catalog: adsCatalog } = useProbeDurations(ads, episodeUrl);
@@ -133,6 +134,13 @@ export default function VidpodPage() {
   useEffect(() => {
     if (player.episodeReady) setEpisodeLoading(false);
   }, [player.episodeReady]);
+
+  useEffect(() => {
+    const ep = player.episodeVideoRef.current;
+    const ad = player.adVideoRef.current;
+    if (ep) ep.volume = volume;
+    if (ad) ad.volume = volume;
+  }, [volume, player.episodeVideoRef, player.adVideoRef, player.episodeReady]);
 
   const persistMarker = useCallback(async (marker: AdMarker, gen: number) => {
     const res = await fetch(`/api/markers/${marker.id}`, {
@@ -245,6 +253,7 @@ export default function VidpodPage() {
     markersRef.current = nextMarkers;
     setSelectedId(created.id);
     setAdPickerMarkerId(created.id);
+    scheduleSync();
 
     const { segments } = buildTimeline(
       nextMarkers,
@@ -266,10 +275,19 @@ export default function VidpodPage() {
   };
 
   const handleDelete = async (id: string) => {
-    updateMarkers((prev) => prev.filter((m) => m.id !== id));
+    persistGenRef.current += 1;
+    let nextMarkers: AdMarker[] = [];
+    flushSync(() => {
+      updateMarkers((prev) => {
+        nextMarkers = prev.filter((m) => m.id !== id);
+        return nextMarkers;
+      });
+    });
+    markersRef.current = nextMarkers;
     if (selectedId === id) setSelectedId(null);
     if (adPickerMarkerId === id) setAdPickerMarkerId(null);
     await fetch(`/api/markers/${id}`, { method: "DELETE" });
+    scheduleSync();
   };
 
   const handleSelectMarker = useCallback(
@@ -346,11 +364,14 @@ export default function VidpodPage() {
     if (updated) await persistMarker(updated, persistGenRef.current);
   };
 
-  useKeyboardShortcuts({
-    onSpace: player.togglePlay,
-    onUndo: undo,
-    onRedo: redo,
-  });
+  useKeyboardShortcuts(
+    {
+      onSpace: player.togglePlay,
+      onUndo: undo,
+      onRedo: redo,
+    },
+    !adPickerMarkerId
+  );
 
   if (loading) {
     return (
@@ -385,6 +406,8 @@ export default function VidpodPage() {
           episodeFilename={episodeFilename}
           podcastVideos={podcastVideos}
           episodeLoading={episodeLoading}
+          volume={volume}
+          onVolumeChange={setVolume}
           onTogglePlay={player.togglePlay}
           onUploadEpisode={handleUploadEpisode}
           onSelectEpisode={handleSelectEpisode}
@@ -428,6 +451,7 @@ export default function VidpodPage() {
             adsCatalog={adsCatalog}
             episodeDuration={player.episodeDuration}
             episodeReady={player.episodeReady}
+            playing={player.playing}
             performance={performance}
             timelineTime={player.timelineTime}
             selectedId={selectedId}

@@ -2,7 +2,7 @@
 
 import { formatTime } from "@/lib/format-time";
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
-import { RefObject, useCallback, useRef, useState } from "react";
+import { RefObject, useCallback, useRef } from "react";
 
 type VideoPlayerProps = {
   episodeVideoRef: RefObject<HTMLVideoElement | null>;
@@ -37,7 +37,6 @@ export function VideoPlayer({
   onSkip,
   onSeek,
 }: VideoPlayerProps) {
-  const [dragging, setDragging] = useState(false);
   const sliderRef = useRef<HTMLDivElement>(null);
 
   const pct = totalDuration > 0 ? (timelineTime / totalDuration) * 100 : 0;
@@ -54,17 +53,30 @@ export function VideoPlayer({
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
-    setDragging(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    seekFromClientX(e.clientX);
-  };
+    e.preventDefault();
+    const el = sliderRef.current;
+    if (!el || totalDuration <= 0) return;
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
+    el.setPointerCapture(e.pointerId);
     seekFromClientX(e.clientX);
-  };
 
-  const onPointerUp = () => setDragging(false);
+    const onMove = (ev: PointerEvent) => seekFromClientX(ev.clientX);
+
+    const onUp = (ev: PointerEvent) => {
+      try {
+        el.releasePointerCapture(ev.pointerId);
+      } catch {
+        /* ok */
+      }
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
 
   return (
     <div className="flex flex-1 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
@@ -138,9 +150,6 @@ export function VideoPlayer({
           ref={sliderRef}
           className="relative mx-2 h-2 flex-1 cursor-pointer rounded-full bg-zinc-200"
           onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
           role="slider"
           aria-valuemin={0}
           aria-valuemax={totalDuration}

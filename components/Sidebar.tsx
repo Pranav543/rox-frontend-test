@@ -26,6 +26,8 @@ type SidebarProps = {
   episodeFilename: string | null;
   podcastVideos: { filename: string; name: string }[];
   episodeLoading: boolean;
+  volume: number;
+  onVolumeChange: (v: number) => void;
   onTogglePlay: () => void;
   onUploadEpisode: (file: File) => Promise<void>;
   onSelectEpisode: (filename: string) => Promise<void>;
@@ -36,6 +38,8 @@ export function Sidebar({
   episodeFilename,
   podcastVideos,
   episodeLoading,
+  volume,
+  onVolumeChange,
   onTogglePlay,
   onUploadEpisode,
   onSelectEpisode,
@@ -62,6 +66,7 @@ export function Sidebar({
       <div className="flex flex-col gap-1 p-4 pt-8">
         <button
           type="button"
+          onClick={() => fileRef.current?.click()}
           className="flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-900 text-sm font-medium text-white hover:bg-zinc-800"
         >
           <Plus className="h-4 w-4" />
@@ -149,7 +154,15 @@ export function Sidebar({
           )}
         </button>
         <Volume2 className="h-5 w-5 text-zinc-500" />
-        <input type="range" className="flex-1" min={0} max={100} defaultValue={80} />
+        <input
+          type="range"
+          className="flex-1"
+          min={0}
+          max={100}
+          value={Math.round(volume * 100)}
+          onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
+          aria-label="Volume"
+        />
       </div>
     </aside>
   );
