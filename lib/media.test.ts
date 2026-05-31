@@ -5,16 +5,23 @@ import path from "path";
 describe("media", () => {
   it("rejects path traversal", () => {
     expect(safeMediaPath("../package.json")).toBeNull();
-    expect(safeMediaPath("..%2Fpackage.json")).toBeNull();
+    expect(safeMediaPath("podcast/../package.json")).toBeNull();
   });
 
-  it("finds main-video in data folder", () => {
-    const p = safeMediaPath("main-video.mp4");
+  it("finds podcast main-video", () => {
+    const p = safeMediaPath("podcast/main-video.mp4");
     expect(p).not.toBeNull();
-    expect(p).toBe(path.join(process.cwd(), "data", "main-video.mp4"));
+    expect(p).toBe(path.join(process.cwd(), "data", "podcast", "main-video.mp4"));
   });
 
-  it("builds media API url", () => {
-    expect(mediaUrl("main-video.mp4")).toBe("/api/media/main-video.mp4");
+  it("finds ads sample video", () => {
+    const p = safeMediaPath("ads/sample-ad-1.mp4");
+    expect(p).not.toBeNull();
+  });
+
+  it("builds media API url with folder", () => {
+    expect(mediaUrl("podcast/main-video.mp4")).toBe(
+      "/api/media/podcast/main-video.mp4"
+    );
   });
 });

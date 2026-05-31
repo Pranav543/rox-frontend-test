@@ -2,25 +2,25 @@
   {
     "id": "ad-1",
     "name": "Sample Ad 1",
-    "filename": "sample-ad-1.mp4",
+    "filename": "ads/sample-ad-1.mp4",
     "duration": 15
   },
   {
     "id": "ad-2",
     "name": "Sample Ad 2",
-    "filename": "sample-ad-2.mp4",
+    "filename": "ads/sample-ad-2.mp4",
     "duration": 15
   },
   {
     "id": "ad-3",
     "name": "Sample Ad 3",
-    "filename": "sample-ad-3.mp4",
+    "filename": "ads/sample-ad-3.mp4",
     "duration": 15
   },
   {
     "id": "ad-4",
     "name": "Sample Ad 4",
-    "filename": "sample-ad-4.mp4",
+    "filename": "ads/sample-ad-4.mp4",
     "duration": 15
   }
 ]

@@ -1,5 +1,6 @@
 "use client";
 
+import { mediaUrl } from "@/lib/ads";
 import type { Ad } from "@/lib/types";
 import { useEffect, useState } from "react";
 
@@ -32,7 +33,7 @@ export function useProbeDurations(ads: Ad[], episodeUrl: string | null) {
     (async () => {
       const updated = await Promise.all(
         ads.map(async (ad) => {
-          const d = await probe(`/api/media/${encodeURIComponent(ad.filename)}`);
+          const d = await probe(mediaUrl(ad.filename));
           return { ...ad, duration: Math.max(1, Math.round(d)) };
         })
       );

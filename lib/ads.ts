@@ -1,8 +1,16 @@
 import type { Ad } from "./types";
 
+export function mediaUrl(relativePath: string): string {
+  const encoded = relativePath
+    .split("/")
+    .map((p) => encodeURIComponent(p))
+    .join("/");
+  return `/api/media/${encoded}`;
+}
+
 /** Client-safe helpers — pass catalog from API responses */
 export function adSrcFromCatalog(ad: Ad): string {
-  return `/api/media/${encodeURIComponent(ad.filename)}`;
+  return mediaUrl(ad.filename);
 }
 
 export function adSrcByIdFromCatalog(catalog: Ad[], id: string): string | null {

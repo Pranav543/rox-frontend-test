@@ -1,19 +1,21 @@
 "use client";
 
 import { formatTime } from "@/lib/format-time";
+import type { AdPerformance } from "@/lib/marker-config";
 import { resolveAdForMarker } from "@/lib/marker-config";
 import {
   MODE_COLORS,
   adDurationFor,
   buildTimeline,
+  buildTimelineExcludingMarker,
   episodeMarkerToTimeline,
+  episodeTimeFromPixelDelta,
   generateWaveformBars,
   getPlayheadLabels,
-  timelinePositionToEpisodeTime,
 } from "@/lib/playback";
 import type { Ad, AdMarker } from "@/lib/types";
 import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 const WAVEFORM = generateWaveformBars(200);
 const MIN_PPS = 4;
@@ -24,6 +26,8 @@ type TimelineProps = {
   markers: AdMarker[];
   adsCatalog: Ad[];
   episodeDuration: number;
+  episodeReady: boolean;
+  performance: Record<string, AdPerformance>;
   timelineTime: number;
   selectedId: string | null;
   pixelsPerSecond: number;
@@ -39,6 +43,7 @@ type TimelineProps = {
 
 type DragState = {
   id: string;
+  pointerId: number;
   startX: number;
   initialEpisodeTime: number;
 };
@@ -49,37 +54,29 @@ function TimelineMarker({
   width,
   selected,
   onSelect,
-  onDragStart,
-  didDragRef,
+  onPointerDown,
 }: {
   marker: AdMarker;
   left: number;
   width: number;
   selected: boolean;
   onSelect: () => void;
-  onDragStart: (e: React.PointerEvent, marker: AdMarker) => void;
-  didDragRef: React.RefObject<boolean>;
+  onPointerDown: (e: React.PointerEvent) => void;
 }) {
   const colors = MODE_COLORS[marker.mode];
 
   return (
     <div
+      data-marker
       role="button"
       tabIndex={0}
-      style={{ left, width: Math.max(width, 36) }}
-      className={`absolute top-0 flex h-full cursor-grab flex-col rounded-md border-2 ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
+      style={{ left, width: Math.max(width, 36), zIndex: selected ? 25 : 20 }}
+      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col rounded-md border-2 ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
         selected ? "ring-2 ring-white ring-offset-1 ring-offset-zinc-900" : ""
       }`}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        onDragStart(e, marker);
-      }}
+      onPointerDown={onPointerDown}
       onClick={(e) => {
         e.stopPropagation();
-        if (didDragRef.current) {
-          didDragRef.current = false;
-          return;
-        }
         onSelect();
       }}
     >
@@ -94,6 +91,8 @@ export function Timeline({
   markers,
   adsCatalog,
   episodeDuration,
+  episodeReady,
+  performance,
   timelineTime,
   selectedId,
   pixelsPerSecond,
@@ -109,25 +108,31 @@ export function Timeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
-  const didDragRef = useRef(false);
-  const [dragPreviewTime, setDragPreviewTime] = useState<number | null>(null);
-  const pixelsPerSecondRef = useRef(pixelsPerSecond);
+  const scrubbingRef = useRef(false);
+  const [dragPreview, setDragPreview] = useState<{
+    id: string;
+    episodeTime: number;
+  } | null>(null);
+
+  const markersRef = useRef(markers);
+  markersRef.current = markers;
+  const ppsRef = useRef(pixelsPerSecond);
+  ppsRef.current = pixelsPerSecond;
   const episodeDurationRef = useRef(episodeDuration);
+  episodeDurationRef.current = episodeDuration;
+  const performanceRef = useRef(performance);
+  performanceRef.current = performance;
+  const adsCatalogRef = useRef(adsCatalog);
+  adsCatalogRef.current = adsCatalog;
 
   const { segments, totalDuration } = useMemo(
-    () => buildTimeline(markers, episodeDuration || 1, adsCatalog),
-    [markers, episodeDuration, adsCatalog]
+    () => buildTimeline(markers, episodeDuration, adsCatalog, performance),
+    [markers, episodeDuration, adsCatalog, performance]
   );
 
-  const segmentsRef = useRef(segments);
-  segmentsRef.current = segments;
-
-  useEffect(() => {
-    pixelsPerSecondRef.current = pixelsPerSecond;
-  }, [pixelsPerSecond]);
-  useEffect(() => {
-    episodeDurationRef.current = episodeDuration;
-  }, [episodeDuration]);
+  const displayMarkers = episodeReady
+    ? markers.filter((m) => m.adIds && m.adIds.length > 0)
+    : [];
 
   const playheadLabels = useMemo(
     () => getPlayheadLabels(timelineTime, episodeDuration, segments),
@@ -138,36 +143,85 @@ export function Timeline({
   const playheadLeft = timelineTime * pixelsPerSecond;
 
   const markerLayouts = useMemo(() => {
-    return markers.map((m) => {
-      const epTime = dragPreviewTime !== null && dragRef.current?.id === m.id
-        ? dragPreviewTime
-        : m.startTime;
+    return displayMarkers.map((m) => {
+      const epTime =
+        dragPreview?.id === m.id ? dragPreview.episodeTime : m.startTime;
       const tl = episodeMarkerToTimeline(epTime, segments);
-      const adId = resolveAdForMarker(m) ?? "ad-1";
+      const adId = resolveAdForMarker(m, { performance }) ?? m.adIds[0];
       const w = adDurationFor(adsCatalog, adId) * pixelsPerSecond;
-      return { marker: m, left: tl * pixelsPerSecond, width: w, episodeTime: epTime };
+      return { marker: m, left: tl * pixelsPerSecond, width: w };
     });
-  }, [markers, pixelsPerSecond, adsCatalog, segments, dragPreviewTime]);
+  }, [
+    displayMarkers,
+    pixelsPerSecond,
+    adsCatalog,
+    segments,
+    dragPreview,
+    performance,
+  ]);
+
+  /** X position on track content from clientX (works with horizontal scroll) */
+  const clientXToTimelineX = useCallback((clientX: number) => {
+    const track = trackRef.current;
+    if (!track) return 0;
+    const rect = track.getBoundingClientRect();
+    return Math.max(0, clientX - rect.left);
+  }, []);
 
   const seekFromClientX = useCallback(
     (clientX: number) => {
-      const track = trackRef.current;
-      const scroll = scrollRef.current;
-      if (!track || !scroll) return;
-      const rect = track.getBoundingClientRect();
-      const x = clientX - rect.left + scroll.scrollLeft;
+      if (totalDuration <= 0) return;
+      const x = clientXToTimelineX(clientX);
       const t = Math.max(0, Math.min(x / pixelsPerSecond, totalDuration));
       onSeek(t);
     },
-    [onSeek, pixelsPerSecond, totalDuration]
+    [clientXToTimelineX, onSeek, pixelsPerSecond, totalDuration]
   );
 
-  const onDragStart = useCallback(
+  const onTrackPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (dragRef.current || !episodeReady || totalDuration <= 0) return;
+      if ((e.target as HTMLElement).closest("[data-marker]")) return;
+
+      scrubbingRef.current = true;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      seekFromClientX(e.clientX);
+
+      const onMove = (ev: PointerEvent) => {
+        if (!scrubbingRef.current) return;
+        seekFromClientX(ev.clientX);
+      };
+
+      const onUp = (ev: PointerEvent) => {
+        scrubbingRef.current = false;
+        try {
+          (e.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
+        } catch {
+          /* capture already released */
+        }
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [episodeReady, seekFromClientX, totalDuration]
+  );
+
+  const onMarkerPointerDown = useCallback(
     (e: React.PointerEvent, marker: AdMarker) => {
+      e.stopPropagation();
       e.preventDefault();
-      didDragRef.current = false;
+
+      const target = e.currentTarget as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+
       dragRef.current = {
         id: marker.id,
+        pointerId: e.pointerId,
         startX: e.clientX,
         initialEpisodeTime: marker.startTime,
       };
@@ -175,45 +229,73 @@ export function Timeline({
 
       const onMove = (ev: PointerEvent) => {
         const drag = dragRef.current;
-        if (!drag) return;
-        if (Math.abs(ev.clientX - drag.startX) > 3) didDragRef.current = true;
+        if (!drag || drag.id !== marker.id) return;
+
         const deltaPx = ev.clientX - drag.startX;
-        const segs = segmentsRef.current;
-        const pps = pixelsPerSecondRef.current;
-        const initialTl = episodeMarkerToTimeline(drag.initialEpisodeTime, segs);
-        const newTl = initialTl + deltaPx / pps;
-        const newEpisodeTime = timelinePositionToEpisodeTime(Math.max(0, newTl), segs);
-        const clamped = Math.max(
-          0,
-          Math.min(newEpisodeTime, episodeDurationRef.current || 0)
+        const dur = episodeDurationRef.current || 0;
+        const pps = ppsRef.current;
+        const { segments: segsForDrag } = buildTimelineExcludingMarker(
+          markersRef.current,
+          drag.id,
+          dur,
+          adsCatalogRef.current,
+          performanceRef.current
         );
-        setDragPreviewTime(clamped);
+
+        const newEpisodeTime = episodeTimeFromPixelDelta(
+          drag.initialEpisodeTime,
+          deltaPx,
+          segsForDrag,
+          dur,
+          pps
+        );
+        const clamped = Math.max(0, Math.min(newEpisodeTime, dur));
+        setDragPreview({ id: drag.id, episodeTime: clamped });
       };
 
-      const onUp = (ev: PointerEvent) => {
+      const endDrag = (ev: PointerEvent) => {
         const drag = dragRef.current;
+        if (!drag || drag.id !== marker.id) return;
+
         dragRef.current = null;
+        try {
+          target.releasePointerCapture(ev.pointerId);
+        } catch {
+          /* ok */
+        }
         window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        if (!drag) return;
-        setDragPreviewTime(null);
+        window.removeEventListener("pointerup", endDrag);
+        window.removeEventListener("pointercancel", endDrag);
+
         const deltaPx = ev.clientX - drag.startX;
-        const segs = segmentsRef.current;
-        const pps = pixelsPerSecondRef.current;
-        const initialTl = episodeMarkerToTimeline(drag.initialEpisodeTime, segs);
-        const newTl = initialTl + deltaPx / pps;
-        const newEpisodeTime = timelinePositionToEpisodeTime(Math.max(0, newTl), segs);
-        const clamped = Math.max(
-          0,
-          Math.min(newEpisodeTime, episodeDurationRef.current || 0)
+        setDragPreview(null);
+
+        if (Math.abs(deltaPx) < 3) return;
+
+        const dur = episodeDurationRef.current || 0;
+        const pps = ppsRef.current;
+        const { segments: segsForDrag } = buildTimelineExcludingMarker(
+          markersRef.current,
+          drag.id,
+          dur,
+          adsCatalogRef.current,
+          performanceRef.current
         );
+
+        const newEpisodeTime = episodeTimeFromPixelDelta(
+          drag.initialEpisodeTime,
+          deltaPx,
+          segsForDrag,
+          dur,
+          pps
+        );
+        const clamped = Math.max(0, Math.min(newEpisodeTime, dur));
         onMarkerMove(drag.id, clamped);
       };
 
       window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
     },
     [onMarkerMove, onSelect]
   );
@@ -267,7 +349,11 @@ export function Timeline({
         <div className="text-right font-mono text-sm tabular-nums text-zinc-600">
           <div>
             Video: {formatTime(playheadLabels.episodeTime)}
-            {episodeDuration > 0 ? ` / ${formatTime(episodeDuration)}` : ""}
+            {episodeDuration > 0 ? ` / ${formatTime(episodeDuration)}` : " —"}
+          </div>
+          <div className="text-xs text-zinc-500">
+            Timeline: {formatTime(timelineTime)}
+            {totalDuration > 0 ? ` / ${formatTime(totalDuration)}` : ""}
           </div>
           {playheadLabels.inAd && (
             <div className="text-xs text-orange-600">Playing ad · {playheadLabels.adLabel}</div>
@@ -293,10 +379,7 @@ export function Timeline({
             ref={trackRef}
             className="relative cursor-pointer overflow-hidden rounded-lg bg-zinc-900"
             style={{ height: TRACK_H, width: trackWidth }}
-            onPointerDown={(e) => {
-              if (dragRef.current) return;
-              seekFromClientX(e.clientX);
-            }}
+            onPointerDown={onTrackPointerDown}
           >
             <div className="pointer-events-none absolute inset-0 flex items-end gap-[2px] px-1 pb-1 opacity-40">
               {WAVEFORM.map((h, i) => (
@@ -321,8 +404,7 @@ export function Timeline({
                 width={width}
                 selected={marker.id === selectedId}
                 onSelect={() => onSelect(marker.id)}
-                onDragStart={onDragStart}
-                didDragRef={didDragRef}
+                onPointerDown={(e) => onMarkerPointerDown(e, marker)}
               />
             ))}
 

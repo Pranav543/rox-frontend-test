@@ -1,5 +1,6 @@
 "use client";
 
+import { AdPickerModal } from "@/components/AdPickerModal";
 import { Header } from "@/components/Header";
 import { MarkerPanel } from "@/components/MarkerPanel";
 import { Sidebar } from "@/components/Sidebar";
@@ -9,7 +10,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useProbeDurations } from "@/hooks/useProbeDurations";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useVidpodPlayer } from "@/hooks/useVidpodPlayer";
-import { adIdsForMode } from "@/lib/marker-config";
+import type { AdPerformance } from "@/lib/marker-config";
 import {
   buildTimeline,
   episodeMarkerToTimeline,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/playback";
 import { syncMarkersToServer } from "@/lib/sync-markers";
 import type { Ad, AdMarker, AdMode } from "@/lib/types";
+import { adIdsForModeSwitch } from "@/components/MarkerRow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -35,18 +37,29 @@ export default function VidpodPage() {
 
   const markersRef = useRef(markers);
   markersRef.current = markers;
+  const persistGenRef = useRef(0);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pixelsPerSecond, setPixelsPerSecond] = useState(12);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [episodeUrl, setEpisodeUrl] = useState<string | null>(null);
-  const [episodeFilename, setEpisodeFilename] = useState("main-video.mp4");
+  const [episodeFilename, setEpisodeFilename] = useState<string | null>(null);
+  const [podcastVideos, setPodcastVideos] = useState<{ filename: string; name: string }[]>([]);
   const [ads, setAds] = useState<Ad[]>([]);
-
+  const [performance, setPerformance] = useState<Record<string, AdPerformance>>({});
+  const [adPickerMarkerId, setAdPickerMarkerId] = useState<string | null>(null);
+  const [episodeLoading, setEpisodeLoading] = useState(false);
   const loadedRef = useRef(false);
+
   const { catalog: adsCatalog } = useProbeDurations(ads, episodeUrl);
-  const player = useVidpodPlayer(markers, episodeUrl ?? "", adsCatalog);
+  const player = useVidpodPlayer(
+    markers,
+    episodeUrl ?? "",
+    adsCatalog,
+    performance
+  );
 
   const playhead = useMemo(
     () =>
@@ -58,13 +71,31 @@ export default function VidpodPage() {
     [player.timelineTime, player.episodeDuration, player.segments]
   );
 
+  const adPickerMarker = markers.find((m) => m.id === adPickerMarkerId);
+
+  const loadPerformance = useCallback(async () => {
+    const res = await fetch("/api/ad-performance");
+    if (res.ok) setPerformance(await res.json());
+  }, []);
+
+  const applyEpisode = useCallback(
+    (data: {
+      filename: string | null;
+      url: string | null;
+      videos?: { filename: string; name: string }[];
+    }) => {
+      setEpisodeFilename(data.filename);
+      setEpisodeUrl(data.url);
+      if (data.videos) setPodcastVideos(data.videos);
+    },
+    []
+  );
+
   const loadEpisode = useCallback(async () => {
     const res = await fetch("/api/episode");
     if (!res.ok) throw new Error("Failed to load episode");
-    const data = await res.json();
-    setEpisodeFilename(data.filename);
-    setEpisodeUrl(data.url);
-  }, []);
+    applyEpisode(await res.json());
+  }, [applyEpisode]);
 
   const loadAds = useCallback(async () => {
     const res = await fetch("/api/ads");
@@ -82,16 +113,28 @@ export default function VidpodPage() {
       }),
       loadEpisode(),
       loadAds(),
+      loadPerformance(),
     ])
-      .then(([markerData]) => {
-        resetMarkers(markerData);
-        if (markerData[0]) setSelectedId(markerData[0].id);
-      })
+      .then(([markerData]) => resetMarkers(markerData))
       .catch((e) => setError(e instanceof Error ? e.message : "Load failed"))
       .finally(() => setLoading(false));
-  }, [loadEpisode, loadAds, resetMarkers]);
+  }, [loadEpisode, loadAds, loadPerformance, resetMarkers]);
 
-  const persistMarker = useCallback(async (marker: AdMarker) => {
+  useEffect(() => {
+    const id = setInterval(() => void loadPerformance(), 2000);
+    return () => clearInterval(id);
+  }, [loadPerformance]);
+
+  useEffect(() => {
+    if (!episodeUrl) return;
+    setEpisodeLoading(true);
+  }, [episodeUrl]);
+
+  useEffect(() => {
+    if (player.episodeReady) setEpisodeLoading(false);
+  }, [player.episodeReady]);
+
+  const persistMarker = useCallback(async (marker: AdMarker, gen: number) => {
     const res = await fetch(`/api/markers/${marker.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -101,7 +144,15 @@ export default function VidpodPage() {
         adIds: marker.adIds,
       }),
     });
+    if (gen !== persistGenRef.current) return;
     if (!res.ok) throw new Error("Failed to save marker");
+  }, []);
+
+  const scheduleSync = useCallback(() => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      void syncMarkersToServer(markersRef.current);
+    }, 150);
   }, []);
 
   const updateMarkers = useCallback(
@@ -112,30 +163,48 @@ export default function VidpodPage() {
   );
 
   const undo = useCallback(() => {
+    persistGenRef.current += 1;
     flushSync(() => undoHistory());
-    void syncMarkersToServer(markersRef.current);
-  }, [undoHistory]);
+    scheduleSync();
+  }, [undoHistory, scheduleSync]);
 
   const redo = useCallback(() => {
+    persistGenRef.current += 1;
     flushSync(() => redoHistory());
-    void syncMarkersToServer(markersRef.current);
-  }, [redoHistory]);
+    scheduleSync();
+  }, [redoHistory, scheduleSync]);
+
+  const setEpisode = async (data: { filename: string; url: string }) => {
+    setEpisodeLoading(true);
+    applyEpisode(data);
+    await loadEpisode();
+  };
 
   const handleUploadEpisode = async (file: File) => {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch("/api/episode", { method: "POST", body: form });
     if (!res.ok) throw new Error("Upload failed");
-    const data = await res.json();
-    setEpisodeFilename(data.filename);
-    setEpisodeUrl(data.url);
+    await setEpisode(await res.json());
+  };
+
+  const handleSelectEpisode = async (filename: string) => {
+    const res = await fetch("/api/episode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename }),
+    });
+    if (!res.ok) throw new Error("Failed to select episode");
+    await setEpisode(await res.json());
   };
 
   const episodeTimeAtPlayhead = useCallback(() => {
+    if (!player.episodeReady) return 0;
     const { segments } = buildTimeline(
       markers,
-      player.episodeDuration || 1,
-      adsCatalog
+      player.episodeDuration,
+      adsCatalog,
+      performance
     );
     for (const seg of segments) {
       if (
@@ -146,93 +215,135 @@ export default function VidpodPage() {
         return seg.episodeStart + (player.timelineTime - seg.timelineStart);
       }
     }
-    return Math.min(player.timelineTime, player.episodeDuration || 0);
-  }, [markers, player.episodeDuration, player.timelineTime, adsCatalog]);
+    return Math.min(player.timelineTime, player.episodeDuration);
+  }, [
+    markers,
+    player.episodeDuration,
+    player.episodeReady,
+    player.timelineTime,
+    adsCatalog,
+    performance,
+  ]);
 
   const createMarkerAt = async (startTime: number, mode: AdMode) => {
+    if (!player.episodeReady) return;
+
     const res = await fetch("/api/markers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startTime, mode, adIds: adIdsForMode(mode) }),
+      body: JSON.stringify({ startTime, mode, adIds: [] }),
     });
     if (!res.ok) return;
     const created = (await res.json()) as AdMarker;
-    const nextMarkers = [...markers, created].sort((a, b) => a.startTime - b.startTime);
-    updateMarkers(() => nextMarkers);
+    let nextMarkers: AdMarker[] = [];
+    flushSync(() => {
+      updateMarkers((prev) => {
+        nextMarkers = [...prev, created].sort((a, b) => a.startTime - b.startTime);
+        return nextMarkers;
+      });
+    });
+    markersRef.current = nextMarkers;
     setSelectedId(created.id);
+    setAdPickerMarkerId(created.id);
+
     const { segments } = buildTimeline(
       nextMarkers,
-      player.episodeDuration || 1,
-      adsCatalog
+      player.episodeDuration,
+      adsCatalog,
+      performance
     );
-    const tl = episodeMarkerToTimeline(created.startTime, segments);
-    player.seek(tl);
+    player.seek(episodeMarkerToTimeline(created.startTime, segments));
   };
 
-  const handleAddMarker = () => {
-    void createMarkerAt(episodeTimeAtPlayhead(), "static");
-  };
+  const handleAddMarker = () => void createMarkerAt(episodeTimeAtPlayhead(), "static");
 
   const handleRandomMarker = () => {
-    const dur = player.episodeDuration || 120;
+    if (!player.episodeReady) return;
+    const dur = player.episodeDuration;
     const startTime = Math.max(5, Math.random() * Math.max(dur - 15, 10));
     const mode = MODES[Math.floor(Math.random() * MODES.length)];
     void createMarkerAt(startTime, mode);
   };
 
   const handleDelete = async (id: string) => {
-    await fetch(`/api/markers/${id}`, { method: "DELETE" });
     updateMarkers((prev) => prev.filter((m) => m.id !== id));
     if (selectedId === id) setSelectedId(null);
+    if (adPickerMarkerId === id) setAdPickerMarkerId(null);
+    await fetch(`/api/markers/${id}`, { method: "DELETE" });
   };
 
   const handleSelectMarker = useCallback(
     (id: string) => {
       setSelectedId(id);
       const marker = markers.find((m) => m.id === id);
-      if (!marker) return;
+      if (!marker || !player.episodeReady) return;
       const { segments } = buildTimeline(
         markers,
-        player.episodeDuration || 1,
-        adsCatalog
+        player.episodeDuration,
+        adsCatalog,
+        performance
       );
       player.seek(episodeMarkerToTimeline(marker.startTime, segments));
     },
-    [markers, player, adsCatalog]
+    [markers, player, adsCatalog, performance]
   );
 
   const handleMarkerMove = async (id: string, startTime: number) => {
     let updated: AdMarker | undefined;
-    updateMarkers((prev) => {
-      const next = prev
-        .map((m) => (m.id === id ? { ...m, startTime } : m))
-        .sort((a, b) => a.startTime - b.startTime);
-      updated = next.find((m) => m.id === id);
-      return next;
+    let nextMarkers: AdMarker[] = [];
+    flushSync(() => {
+      updateMarkers((prev) => {
+        nextMarkers = prev
+          .map((m) => (m.id === id ? { ...m, startTime } : m))
+          .sort((a, b) => a.startTime - b.startTime);
+        updated = nextMarkers.find((m) => m.id === id);
+        return nextMarkers;
+      });
     });
-    if (updated) {
-      await persistMarker(updated);
-      const nextMarkers = markers
-        .map((m) => (m.id === id ? { ...m, startTime } : m))
-        .sort((a, b) => a.startTime - b.startTime);
+    markersRef.current = nextMarkers;
+    if (updated && player.episodeReady) {
+      void persistMarker(updated, persistGenRef.current);
       const { segments } = buildTimeline(
         nextMarkers,
-        player.episodeDuration || 1,
-        adsCatalog
+        player.episodeDuration,
+        adsCatalog,
+        performance
       );
       player.seek(episodeMarkerToTimeline(startTime, segments));
     }
   };
 
   const handleModeChange = async (id: string, mode: AdMode) => {
-    const adIds = adIdsForMode(mode);
     let updated: AdMarker | undefined;
     updateMarkers((prev) => {
-      const next = prev.map((m) => (m.id === id ? { ...m, mode, adIds } : m));
+      const next = prev.map((m) => {
+        if (m.id !== id) return m;
+        return { ...m, mode, adIds: adIdsForModeSwitch(mode, m.adIds) };
+      });
       updated = next.find((m) => m.id === id);
       return next;
     });
-    if (updated) await persistMarker(updated);
+    if (updated) await persistMarker(updated, persistGenRef.current);
+  };
+
+  const handleAdIdsSave = async (adIds: string[]) => {
+    if (!adPickerMarker) return;
+    const normalized =
+      adPickerMarker.mode === "static"
+        ? adIds.length > 0
+          ? [adIds[adIds.length - 1]]
+          : []
+        : adIds;
+
+    let updated: AdMarker | undefined;
+    updateMarkers((prev) => {
+      const next = prev.map((m) =>
+        m.id === adPickerMarker.id ? { ...m, adIds: normalized } : m
+      );
+      updated = next.find((m) => m.id === adPickerMarker.id);
+      return next;
+    });
+    if (updated) await persistMarker(updated, persistGenRef.current);
   };
 
   useKeyboardShortcuts({
@@ -272,8 +383,11 @@ export default function VidpodPage() {
         <Sidebar
           playing={player.playing}
           episodeFilename={episodeFilename}
+          podcastVideos={podcastVideos}
+          episodeLoading={episodeLoading}
           onTogglePlay={player.togglePlay}
           onUploadEpisode={handleUploadEpisode}
+          onSelectEpisode={handleSelectEpisode}
         />
 
         <main className="flex min-w-0 flex-1 flex-col gap-4 p-6">
@@ -282,17 +396,22 @@ export default function VidpodPage() {
               adsCatalog={adsCatalog}
               markers={markers}
               selectedId={selectedId}
+              episodeReady={player.episodeReady}
+              performance={performance}
               onSelect={handleSelectMarker}
               onAdd={handleAddMarker}
               onRandomMarker={handleRandomMarker}
               onDelete={handleDelete}
               onModeChange={handleModeChange}
+              onPickAd={setAdPickerMarkerId}
             />
             <VideoPlayer
               videoRef={player.videoRef}
               playing={player.playing}
               episodeTime={playhead.episodeTime}
               episodeDuration={player.episodeDuration}
+              episodeReady={player.episodeReady}
+              episodeLoading={episodeLoading && !player.episodeReady}
               timelineTime={player.timelineTime}
               totalDuration={player.totalDuration}
               inAd={playhead.inAd}
@@ -306,6 +425,8 @@ export default function VidpodPage() {
             markers={markers}
             adsCatalog={adsCatalog}
             episodeDuration={player.episodeDuration}
+            episodeReady={player.episodeReady}
+            performance={performance}
             timelineTime={player.timelineTime}
             selectedId={selectedId}
             pixelsPerSecond={pixelsPerSecond}
@@ -315,11 +436,25 @@ export default function VidpodPage() {
             onRedo={redo}
             onZoom={setPixelsPerSecond}
             onSeek={player.seek}
-            onSelect={setSelectedId}
+            onSelect={handleSelectMarker}
             onMarkerMove={handleMarkerMove}
           />
         </main>
       </div>
+
+      {adPickerMarker && (
+        <AdPickerModal
+          open
+          mode={adPickerMarker.mode}
+          ads={adsCatalog}
+          selectedIds={adPickerMarker.adIds}
+          onClose={() => setAdPickerMarkerId(null)}
+          onSave={(adIds) => {
+            void handleAdIdsSave(adIds);
+            if (adPickerMarker.mode === "static") setAdPickerMarkerId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

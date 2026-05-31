@@ -9,6 +9,8 @@ type VideoPlayerProps = {
   playing: boolean;
   episodeTime: number;
   episodeDuration: number;
+  episodeReady: boolean;
+  episodeLoading?: boolean;
   timelineTime: number;
   totalDuration: number;
   inAd: boolean;
@@ -22,6 +24,8 @@ export function VideoPlayer({
   playing,
   episodeTime,
   episodeDuration,
+  episodeReady,
+  episodeLoading = false,
   timelineTime,
   totalDuration,
   inAd,
@@ -67,7 +71,14 @@ export function VideoPlayer({
           playsInline
           onClick={onTogglePlay}
         />
-        {inAd && (
+        {(!episodeReady || episodeLoading) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white">
+            <p className="text-sm font-medium">
+              {episodeLoading ? "Loading video…" : "Upload a main video to get started"}
+            </p>
+          </div>
+        )}
+        {inAd && episodeReady && (
           <span className="absolute left-3 top-3 rounded bg-orange-500/90 px-2 py-1 text-xs font-medium text-white">
             Ad break
           </span>
@@ -130,10 +141,14 @@ export function VideoPlayer({
 
         <div className="shrink-0 text-right font-mono text-sm tabular-nums text-zinc-600">
           <div>
-            {formatTime(episodeTime)}
-            {episodeDuration > 0 ? ` / ${formatTime(episodeDuration)}` : ""}
+            {formatTime(timelineTime)}
+            {totalDuration > 0 ? ` / ${formatTime(totalDuration)}` : ""}
           </div>
-          <div className="text-xs text-zinc-400">in main video</div>
+          <div className="text-xs text-zinc-400">
+            Episode {formatTime(episodeTime)}
+            {episodeDuration > 0 ? ` / ${formatTime(episodeDuration)}` : ""}
+            {!episodeReady ? " · loading…" : inAd ? " · ad" : ""}
+          </div>
         </div>
       </div>
     </div>

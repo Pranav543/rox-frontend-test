@@ -1,6 +1,5 @@
 import { deleteMarker, getMarker, updateMarker } from "@/lib/db";
-import { adIdsForMode } from "@/lib/marker-config";
-import type { AdMode, UpdateMarkerBody } from "@/lib/types";
+import type { UpdateMarkerBody } from "@/lib/types";
 import { NextResponse } from "next/server";
 
 type Params = { params: Promise<{ id: string }> };
@@ -22,10 +21,8 @@ export async function PUT(request: Request, { params }: Params) {
     }
     patch.startTime = t;
   }
-  if (body.mode !== undefined) {
-    patch.mode = body.mode;
-    patch.adIds = adIdsForMode(body.mode as AdMode);
-  }
+  if (body.mode !== undefined) patch.mode = body.mode;
+  if (body.adIds !== undefined) patch.adIds = body.adIds.filter(Boolean);
 
   const marker = updateMarker(id, patch);
   return NextResponse.json(marker);

@@ -23,19 +23,27 @@ const NAV = [
 
 type SidebarProps = {
   playing: boolean;
-  episodeFilename: string;
+  episodeFilename: string | null;
+  podcastVideos: { filename: string; name: string }[];
+  episodeLoading: boolean;
   onTogglePlay: () => void;
   onUploadEpisode: (file: File) => Promise<void>;
+  onSelectEpisode: (filename: string) => Promise<void>;
 };
 
 export function Sidebar({
   playing,
   episodeFilename,
+  podcastVideos,
+  episodeLoading,
   onTogglePlay,
   onUploadEpisode,
+  onSelectEpisode,
 }: SidebarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  const displayName = episodeFilename?.split("/").pop() ?? "No video loaded";
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,13 +69,14 @@ export function Sidebar({
         </button>
 
         <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-3">
-          <p className="mb-2 text-xs font-medium text-zinc-500">Main episode video</p>
-          <p className="mb-3 truncate text-sm font-medium" title={episodeFilename}>
-            {episodeFilename || "main-video.mp4"}
+          <p className="mb-2 text-xs font-medium text-zinc-500">Main video</p>
+          <p className="mb-3 truncate text-sm font-medium" title={displayName}>
+            {episodeLoading ? "Loading…" : displayName}
           </p>
+
           <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50">
             <Upload className="h-4 w-4" />
-            {uploading ? "Uploading…" : "Upload / replace video"}
+            {uploading ? "Uploading…" : "Upload video"}
             <input
               ref={fileRef}
               type="file"
@@ -76,9 +85,24 @@ export function Sidebar({
               onChange={handleFile}
             />
           </label>
-          <p className="mt-2 text-xs text-zinc-400">
-            Saves to data/ and replaces the current episode. Sample ads are fixed.
-          </p>
+
+          {podcastVideos.length > 0 && (
+            <select
+              className="mt-2 w-full rounded-md border border-zinc-200 px-2 py-2 text-sm text-zinc-700"
+              value={episodeFilename ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) void onSelectEpisode(v);
+              }}
+            >
+              <option value="">Or pick from data/podcast/</option>
+              {podcastVideos.map((v) => (
+                <option key={v.filename} value={v.filename}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <nav className="mt-6 flex flex-col gap-1">
@@ -112,9 +136,9 @@ export function Sidebar({
         <button
           type="button"
           onClick={onTogglePlay}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-300 hover:bg-white"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-300 hover:bg-white disabled:opacity-40"
+          disabled={!episodeFilename}
           aria-label={playing ? "Pause" : "Play"}
-          title={playing ? "Pause" : "Play"}
         >
           <Play className={`h-4 w-4 ${playing ? "hidden" : ""}`} />
           {playing && (

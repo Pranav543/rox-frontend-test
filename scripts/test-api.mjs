@@ -35,14 +35,19 @@ const { status: m0, json: markers0 } = await req("GET", "/api/markers");
 assert("GET markers", m0 === 200 && Array.isArray(markers0));
 
 const { status: ep, json: episode } = await req("GET", "/api/episode");
-assert("GET episode", ep === 200 && episode.url?.includes("main-video.mp4"));
+assert("GET episode", ep === 200 && episode.url?.includes("podcast/"));
 assert("episode exists", episode.exists === true);
+assert("lists podcast folder", Array.isArray(episode.videos) && episode.videos.length >= 1);
 
 const { status: adsStatus, json: ads } = await req("GET", "/api/ads");
 assert("GET ads", adsStatus === 200 && ads.length >= 4);
+assert("ads use ads/ path", ads[0]?.filename?.startsWith("ads/"));
 
-const { status: mediaStatus } = await req("GET", "/api/media/main-video.mp4");
-assert("GET main-video media", mediaStatus === 200);
+const { status: mediaStatus } = await req("GET", "/api/media/podcast/main-video.mp4");
+assert("GET podcast media", mediaStatus === 200);
+
+const { status: perfStatus, json: perf } = await req("GET", "/api/ad-performance");
+assert("GET ad-performance", perfStatus === 200 && perf["ad-4"]?.ctr > 0);
 
 const { status: create, json: created } = await req("POST", "/api/markers", {
   startTime: 10,
