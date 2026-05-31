@@ -1,75 +1,156 @@
 # Vidpod — Dynamic Ads Editor
 
-Mark ad placements on a podcast video, choose static / auto / A/B modes, and preview playback with ads inserted at each marker.
+Full-stack app for podcasters to mark where ads should play in an episode and choose how ads are selected (static, auto, or A/B). Preview playback with ads injected on the timeline, persist markers in SQLite, and export a single stitched MP4.
 
-## Setup
+## Quick start
 
 ```bash
 npm install
-npm run dev
+npm run dev          # or: npm run dev:clean  (clears .next cache)
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## Video files
+**MP4 export** requires [ffmpeg](https://ffmpeg.org/) on your machine (`brew install ffmpeg` on macOS).
 
-Default episode and sample ads live in the **`data/`** folder (served via `/api/media/...`):
-
-```
-data/
-  main-video.mp4      # default episode
-  sample-ad-1.mp4
-  sample-ad-2.mp4
-  sample-ad-3.mp4
-  sample-ad-4.mp4
+```bash
+npm test                              # unit tests
+node scripts/test-api.mjs             # API smoke (dev server running)
+node scripts/test-export.mjs --full     # export pipeline (slow)
 ```
 
-- **Upload episode** — sidebar → “Upload video” (saved to `data/`, selected automatically)
-- **Select episode** — dropdown lists all `.mp4` files in `data/` (excluding `sample-ad-*`)
-- **Upload ad** — Ad library modal → “Upload ad”
+---
 
-Metadata for the four sample ads is in [`data/ads.json`](data/ads.json). Durations are probed in the browser after load.
+## Implemented features
 
-## Ad modes (demo scenarios)
+### Ad markers & modes
+- Create, update, delete markers (CRUD + SQLite persistence)
+- **Static** — always plays the first ad in the marker’s pool
+- **Auto** — random ad from pool on each play-through; stable preview on timeline/export
+- **A/B** — plays the ad with highest CTR from `data/ad-performance.json` (polled every 2s)
+- Per-marker ad picker modal (single ad for static, multi-select for auto/A/B)
+- Mode cycle button, random marker generator, delete marker
 
-| Mode | Behavior |
-|------|----------|
-| **Static** | Always plays the first selected ad (e.g. `ad-1`) |
-| **Auto** | Random ad from selected pool on each play-through |
-| **A/B** | Rotates through all selected ads in order |
+### Timeline & editing
+- Visual timeline with episode + ad blocks (total duration includes ad slots)
+- Draggable markers (episode-time accurate; skips ad blocks while dragging)
+- Timeline click / playhead seek; red playhead with handle
+- Zoom in/out; auto-scroll to playhead while playing
+- Decorative waveform bars (seeded, not from audio)
+- Undo / redo for marker list (history stack)
 
-## Features
+### Video player
+- Dual `<video>` elements — episode + ad, no `src` swap glitches
+- Plays episode, then ad at each marker, then resumes episode
+- Timeline time vs episode time labels; “Ad break” badge
+- Draggable progress slider; skip ±10s
+- **Spacebar** play/pause (disabled while ad picker modal is open)
+- Volume control (both videos)
+- Episode muted during ad breaks (no background episode audio)
 
-- SQLite persistence for markers (`data/vidpod.db`)
-- Draggable timeline markers, zoom, undo/redo
-- Player scrubber, skip ±10s, spacebar play/pause
-- Episode + ad playback with timeline including ad duration
+### Episode & media
+- **Episode upload** — sidebar “Upload video” → `data/podcast/`
+- **Episode select** — dropdown of podcast videos in `data/podcast/`
+- Sample ads in `data/ads/` + catalog in `data/ads.json`
+- Media served at `/api/media/podcast/...` and `/api/media/ads/...`
+- Browser probes real video durations for timeline/export
 
-## API
+### Export (bonus #3)
+- **Export MP4** — stitches episode segments + ads via ffmpeg
+- Streaming progress bar (% + stage) during export
+- Success notification + browser download when complete
+- Files saved under `data/exports/` (gitignored)
+
+### UI polish
+- Sidebar with hover states (links are placeholders)
+- Marker row / timeline transitions; selected marker highlight
+
+### Backend API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/markers` | List markers |
-| POST | `/api/markers` | Create marker |
-| PUT | `/api/markers/[id]` | Update marker |
-| DELETE | `/api/markers/[id]` | Delete marker |
-| GET | `/api/episode` | Current episode + available files |
-| POST | `/api/episode` | Select filename (JSON) or upload (multipart) |
-| GET | `/api/ads` | List ads |
-| POST | `/api/ads` | Upload ad (multipart) |
-| GET | `/api/media/[filename]` | Stream video from `data/` |
+| GET/POST | `/api/markers` | List / create markers |
+| PUT/DELETE | `/api/markers/[id]` | Update / delete marker |
+| GET/POST | `/api/episode` | Current episode, list videos, upload/select |
+| GET | `/api/ads` | Ad catalog |
+| GET | `/api/ad-performance` | Live A/B performance JSON |
+| GET/POST | `/api/export` | ffmpeg status / start export (NDJSON progress stream) |
+| GET | `/api/export/[filename]` | Download exported MP4 |
+| GET | `/api/media/[...path]` | Stream `data/podcast` or `data/ads` files |
 
-## Tests
+---
 
-```bash
-# Unit tests (playback, media paths)
-npm test
+## Directory structure
 
-# API smoke test (dev server must be running)
-node scripts/test-api.mjs
-# or: BASE_URL=http://localhost:3001 node scripts/test-api.mjs
 ```
+rox-frontend-test-3/
+├── app/
+│   ├── layout.tsx              # Root layout
+│   ├── page.tsx                # Main Vidpod page (state, sync, shortcuts)
+│   └── api/
+│       ├── markers/            # Marker CRUD
+│       ├── episode/            # Episode GET + upload/select POST
+│       ├── ads/                # Ad catalog GET
+│       ├── ad-performance/     # A/B metrics JSON
+│       ├── export/             # MP4 export + download
+│       └── media/[...path]/    # Video file streaming
+├── components/
+│   ├── Header.tsx
+│   ├── Sidebar.tsx             # Episode upload/select, play, volume
+│   ├── MarkerPanel.tsx         # Marker list + export button
+│   ├── MarkerRow.tsx
+│   ├── AdPickerModal.tsx
+│   ├── VideoPlayer.tsx
+│   ├── Timeline.tsx
+│   └── ExportButton.tsx
+├── hooks/
+│   ├── useVidpodPlayer.ts      # Playback, ads, seek, dual video
+│   ├── useUndoRedo.ts
+│   ├── useKeyboardShortcuts.ts
+│   └── useProbeDurations.ts
+├── lib/
+│   ├── db.ts                   # SQLite (markers, settings, ads)
+│   ├── types.ts
+│   ├── media.ts                # Paths, uploads, safe file access
+│   ├── ads.ts / ads-server.ts  # Client helpers + catalog
+│   ├── marker-config.ts        # Static / auto / A/B resolution
+│   ├── playback*.ts            # Timeline build, sync, segments
+│   ├── export-plan.ts          # Export segment list
+│   ├── video-export.ts         # ffmpeg stitch
+│   ├── ffmpeg.ts
+│   ├── export-stream.ts        # NDJSON progress parsing
+│   └── …tests (*.test.ts)
+├── data/
+│   ├── podcast/                # Main episode(s)
+│   ├── ads/                    # Ad MP4s
+│   ├── ads.json                # Sample ad metadata
+│   ├── ad-performance.json       # A/B CTR demo data
+│   ├── exports/                # Generated MP4s (gitignored)
+│   └── vidpod.db               # SQLite (gitignored)
+├── scripts/
+│   ├── test-api.mjs
+│   ├── test-export.mjs
+│   └── test-playback-transitions.mjs
+├── package.json
+└── vitest.config.ts
+```
+
+---
+
+## Bonus features
+
+| # | Feature | Status | Easy path forward |
+|---|---------|--------|-------------------|
+| 1 | Video & ad upload | **Partial** — episode upload works; ad upload UI/API not wired | Add `POST /api/ads` multipart (mirror `episode/route.ts`), save to `data/ads/`, `upsertAd` in DB |
+| 2 | Real waveforms | **Not done** — decorative bars only | Decode audio with ffmpeg/`audiowaveform`, cache peaks JSON, render bars from samples |
+| 3 | MP4 export with ads | **Done** | — |
+| 4 | HLS + 4 qualities + interstitials | **Not done** | ffmpeg → `.m3u8` + TS segments; master playlist; ad periods as separate renditions or SCTE-35-style discontinuities |
+| 5 | Transcript scrub UI | **Not done** | ffmpeg extract audio → Whisper API → store segments; clickable transcript seeks player |
+| 6 | Hosting notes | **Not done** | Static UI on Vercel; videos on S3/R2 + CloudFront; HLS via MediaConvert or self-hosted ffmpeg worker |
+| 7 | Durable pipelines | **Not done** | Queue export jobs (BullMQ / SQS), persist job state in DB, idempotent retries |
+
+---
 
 ## Stack
 
-Next.js 15, React 19, Tailwind CSS 4, better-sqlite3, @dnd-kit/core, vitest.
+Next.js 15 · React 19 · Tailwind CSS 4 · better-sqlite3 · @dnd-kit · ffmpeg (export) · Vitest
