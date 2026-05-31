@@ -1,4 +1,4 @@
-import type { TimelineSegment } from "./playback";
+import type { TimelineSegment } from "./timeline-build";
 
 /** Episode segment containing this episode timestamp */
 export function findEpisodeSegmentAtEpisodeTime(

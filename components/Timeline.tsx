@@ -3,16 +3,14 @@
 import { formatTime } from "@/lib/format-time";
 import type { AdPerformance } from "@/lib/marker-config";
 import { resolveAdForMarker } from "@/lib/marker-config";
+import { adDurationFor, buildTimeline } from "@/lib/playback";
 import {
-  MODE_COLORS,
-  adDurationFor,
-  buildTimeline,
   buildTimelineExcludingMarker,
   episodeMarkerToTimeline,
   episodeTimeFromPixelDelta,
-  generateWaveformBars,
   getPlayheadLabels,
-} from "@/lib/playback";
+} from "@/lib/timeline-mapping";
+import { MODE_COLORS, generateWaveformBars } from "@/lib/timeline-visual";
 import type { Ad, AdMarker } from "@/lib/types";
 import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

@@ -11,14 +11,11 @@ import { useProbeDurations } from "@/hooks/useProbeDurations";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useVidpodPlayer } from "@/hooks/useVidpodPlayer";
 import type { AdPerformance } from "@/lib/marker-config";
-import {
-  buildTimeline,
-  episodeMarkerToTimeline,
-  getPlayheadLabels,
-} from "@/lib/playback";
+import { buildTimeline, episodeMarkerToTimeline } from "@/lib/playback";
+import { getPlayheadLabels } from "@/lib/timeline-mapping";
 import { syncMarkersToServer } from "@/lib/sync-markers";
 import type { Ad, AdMarker, AdMode } from "@/lib/types";
-import { adIdsForModeSwitch } from "@/components/MarkerRow";
+import { adIdsForModeSwitch } from "@/lib/marker-utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 

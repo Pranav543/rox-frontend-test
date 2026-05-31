@@ -2,11 +2,11 @@
 
 import type { AdPerformance } from "@/lib/marker-config";
 import { resolveAdForMarker } from "@/lib/marker-config";
-import { MODE_COLORS } from "@/lib/playback";
+import { cycleMode } from "@/lib/marker-utils";
+import { MODE_COLORS } from "@/lib/timeline-visual";
 import type { Ad, AdMarker, AdMode } from "@/lib/types";
 import { ChevronRight, Trash2 } from "lucide-react";
 
-const MODES: AdMode[] = ["static", "auto", "ab"];
 const MODE_LABELS: Record<AdMode, string> = {
   static: "Static",
   auto: "Auto",
@@ -103,12 +103,4 @@ function formatMarkerTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function cycleMode(mode: AdMode): AdMode {
-  const i = MODES.indexOf(mode);
-  return MODES[(i + 1) % MODES.length];
-}
-
-export function adIdsForModeSwitch(mode: AdMode, current: string[]): string[] {
-  if (mode === "static") return current.length > 0 ? [current[0]] : [];
-  return current;
-}
+export { cycleMode, adIdsForModeSwitch } from "@/lib/marker-utils";
