@@ -16,7 +16,6 @@ import type { Ad, AdMarker } from "@/lib/types";
 import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const WAVEFORM = generateWaveformBars(200);
 const MIN_PPS = 4;
 const MAX_PPS = 48;
 const TRACK_H = 88;
@@ -101,7 +100,7 @@ function TimelineMarker({
       >
         {colors.icon}
       </span>
-      {thumbnail && marker.mode === "static" && blockW > 56 ? (
+      {thumbnail && blockW > 48 ? (
         <div className="mx-1 mb-5 overflow-hidden rounded border border-white/60 bg-black/20">
           <video
             className="h-8 w-full object-cover"
@@ -238,6 +237,11 @@ export function Timeline({
 
   const trackWidth = Math.max(totalDuration * pixelsPerSecond, 800);
   const playheadLeft = timelineTime * pixelsPerSecond;
+
+  const waveformBars = useMemo(() => {
+    const barCount = Math.max(80, Math.min(800, Math.floor(trackWidth / 4)));
+    return generateWaveformBars(barCount);
+  }, [trackWidth]);
 
   useEffect(() => {
     if (!playing || !scrollRef.current || totalDuration <= 0) return;
@@ -533,11 +537,11 @@ export function Timeline({
               }}
               onPointerDown={onTrackPointerDown}
             >
-              <div className="pointer-events-none absolute inset-0 flex items-end gap-[2px] px-1 pb-3 opacity-80">
-                {WAVEFORM.map((h, i) => (
+              <div className="pointer-events-none absolute inset-0 flex w-full items-end gap-px px-1 pb-3 opacity-80">
+                {waveformBars.map((h, i) => (
                   <div
                     key={i}
-                    className="w-[3px] shrink-0 rounded-sm bg-white"
+                    className="min-w-0 flex-1 rounded-sm bg-white"
                     style={{ height: `${h * 72}%` }}
                   />
                 ))}
