@@ -1,6 +1,6 @@
 "use client";
 
-import { formatTime } from "@/lib/format-time";
+import { formatTimecode } from "@/lib/format-time";
 import type { AdPerformance } from "@/lib/marker-config";
 import { resolveAdForMarker } from "@/lib/marker-config";
 import { adDurationFor, buildTimeline } from "@/lib/playback";
@@ -10,6 +10,7 @@ import {
   episodeTimeFromPixelDelta,
   getPlayheadLabels,
 } from "@/lib/timeline-mapping";
+import { mediaUrl } from "@/lib/ads";
 import { MODE_COLORS, generateWaveformBars } from "@/lib/timeline-visual";
 import type { Ad, AdMarker } from "@/lib/types";
 import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
@@ -50,11 +51,22 @@ type DragState = {
   initialEpisodeTime: number;
 };
 
+function MarkerGrip() {
+  return (
+    <div className="flex h-3 w-4 flex-wrap items-center justify-center gap-[2px] px-0.5">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-white/90" />
+      ))}
+    </div>
+  );
+}
+
 function TimelineMarker({
   marker,
   left,
   width,
   selected,
+  thumbnail,
   onSelect,
   onPointerDown,
 }: {
@@ -62,19 +74,21 @@ function TimelineMarker({
   left: number;
   width: number;
   selected: boolean;
+  thumbnail?: string;
   onSelect: () => void;
   onPointerDown: (e: React.PointerEvent) => void;
 }) {
   const colors = MODE_COLORS[marker.mode];
+  const blockW = Math.max(width, 40);
 
   return (
     <div
       data-marker
       role="button"
       tabIndex={0}
-      style={{ left, width: Math.max(width, 36), zIndex: selected ? 25 : 20 }}
-      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col rounded-md border-2 transition-[left,width] duration-200 ease-out ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
-        selected ? "ring-2 ring-white ring-offset-1 ring-offset-zinc-900" : ""
+      style={{ left, width: blockW, zIndex: selected ? 25 : 20 }}
+      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col justify-between rounded-md border-2 transition-[left,width] duration-200 ease-out ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
+        selected ? "ring-2 ring-white/80" : ""
       }`}
       onPointerDown={onPointerDown}
       onClick={(e) => {
@@ -82,9 +96,26 @@ function TimelineMarker({
         onSelect();
       }}
     >
-      <span className={`m-1 truncate px-1 text-[10px] font-bold uppercase ${colors.text}`}>
-        {marker.mode === "ab" ? "A/B" : marker.mode}
+      <span
+        className={`m-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-[9px] font-bold shadow-sm ${colors.text}`}
+      >
+        {colors.icon}
       </span>
+      {thumbnail && marker.mode === "static" && blockW > 56 ? (
+        <div className="mx-1 mb-5 overflow-hidden rounded border border-white/60 bg-black/20">
+          <video
+            className="h-8 w-full object-cover"
+            src={thumbnail}
+            muted
+            preload="metadata"
+          />
+        </div>
+      ) : (
+        <span />
+      )}
+      <div className="flex justify-center pb-0.5">
+        <MarkerGrip />
+      </div>
     </div>
   );
 }
@@ -117,6 +148,9 @@ function Playhead({
         role="slider"
         aria-label="Playhead"
         aria-valuetext={timeLabel}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={0}
         tabIndex={episodeReady ? 0 : -1}
         className={`pointer-events-auto absolute left-0 flex -translate-x-1/2 touch-none flex-col items-center ${
           episodeReady ? "cursor-grab active:cursor-grabbing" : "cursor-default opacity-50"
@@ -125,19 +159,20 @@ function Playhead({
         onPointerDown={onScrubStart}
       >
         <div
-          className="flex w-full items-center justify-center rounded-md border-2 border-red-700 bg-red-500 shadow-md"
+          className="flex w-full items-center justify-center rounded-[3px] border-2 border-[#b91c1c] bg-[#ef4444] shadow-md"
           style={{ height: PLAYHEAD_HANDLE_H }}
         >
-          <div className="h-2.5 w-1 rounded-full bg-red-100" />
+          <div className="grid grid-cols-2 gap-[2px] p-1">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-white" />
+            ))}
+          </div>
         </div>
-        <span className="mt-0.5 whitespace-nowrap rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
-          {timeLabel}
-        </span>
       </div>
 
       <div
-        className="pointer-events-none absolute left-0 w-[2px] -translate-x-1/2 bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.85)]"
-        style={{ top: RULER_H + 8, bottom: 0 }}
+        className="pointer-events-none absolute left-0 w-[2px] -translate-x-1/2 bg-[#ef4444] shadow-[0_0_4px_rgba(239,68,68,0.6)]"
+        style={{ top: PLAYHEAD_HANDLE_H - 2, bottom: -RULER_H - 8 }}
       />
     </div>
   );
@@ -188,9 +223,13 @@ export function Timeline({
     [markers, episodeDuration, adsCatalog, performance]
   );
 
-  const displayMarkers = episodeReady
-    ? markers.filter((m) => m.adIds && m.adIds.length > 0)
-    : [];
+  const displayMarkers = useMemo(
+    () =>
+      episodeReady
+        ? markers.filter((m) => m.adIds && m.adIds.length > 0)
+        : [],
+    [episodeReady, markers]
+  );
 
   const playheadLabels = useMemo(
     () => getPlayheadLabels(timelineTime, episodeDuration, segments),
@@ -220,8 +259,14 @@ export function Timeline({
         dragPreview?.id === m.id ? dragPreview.episodeTime : m.startTime;
       const tl = episodeMarkerToTimeline(epTime, segments);
       const adId = resolveAdForMarker(m, { performance }) ?? m.adIds[0];
+      const ad = adsCatalog.find((a) => a.id === adId);
       const w = adDurationFor(adsCatalog, adId) * pixelsPerSecond;
-      return { marker: m, left: tl * pixelsPerSecond, width: w };
+      return {
+        marker: m,
+        left: tl * pixelsPerSecond,
+        width: w,
+        thumbnail: ad ? mediaUrl(ad.filename) : undefined,
+      };
     });
   }, [
     displayMarkers,
@@ -428,15 +473,15 @@ export function Timeline({
   }, [totalDuration, pixelsPerSecond]);
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-4 border-b border-zinc-100 px-4 py-3">
+    <div className="rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <div className="relative flex items-center border-b border-[#f3f4f6] px-4 py-2.5">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onUndo}
             disabled={!canUndo}
             title="Undo (⌘Z)"
-            className="flex items-center gap-1.5 rounded-full border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-30 hover:bg-zinc-50"
+            className="flex items-center gap-1.5 rounded-full border border-[#e5e7eb] px-3 py-1.5 text-sm text-[#374151] disabled:opacity-30 hover:bg-[#f9fafb]"
           >
             <Undo2 className="h-4 w-4" />
             Undo
@@ -446,15 +491,19 @@ export function Timeline({
             onClick={onRedo}
             disabled={!canRedo}
             title="Redo (⌘⇧Z)"
-            className="flex items-center gap-1.5 rounded-full border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-30 hover:bg-zinc-50"
+            className="flex items-center gap-1.5 rounded-full border border-[#e5e7eb] px-3 py-1.5 text-sm text-[#374151] disabled:opacity-30 hover:bg-[#f9fafb]"
           >
             <Redo2 className="h-4 w-4" />
             Redo
           </button>
         </div>
 
-        <div className="flex flex-1 items-center gap-3 px-4">
-          <ZoomOut className="h-4 w-4 shrink-0 text-zinc-400" />
+        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-3 py-1 font-mono text-[13px] font-medium tabular-nums text-[#111827]">
+          {formatTimecode(playheadLabels.episodeTime)}
+        </div>
+
+        <div className="ml-auto flex w-[200px] items-center gap-2">
+          <ZoomOut className="h-4 w-4 shrink-0 text-[#9ca3af]" />
           <input
             type="range"
             min={MIN_PPS}
@@ -464,81 +513,72 @@ export function Timeline({
             className="flex-1"
             aria-label="Timeline zoom"
           />
-          <ZoomIn className="h-4 w-4 shrink-0 text-zinc-400" />
-        </div>
-
-        <div className="text-right font-mono text-sm tabular-nums text-zinc-600">
-          <div>
-            Video: {formatTime(playheadLabels.episodeTime)}
-            {episodeDuration > 0 ? ` / ${formatTime(episodeDuration)}` : " —"}
-          </div>
-          <div className="text-xs text-zinc-500">
-            Timeline: {formatTime(timelineTime)}
-            {totalDuration > 0 ? ` / ${formatTime(totalDuration)}` : ""}
-          </div>
-          {playheadLabels.inAd && (
-            <div className="text-xs text-orange-600">Playing ad · {playheadLabels.adLabel}</div>
-          )}
+          <ZoomIn className="h-4 w-4 shrink-0 text-[#9ca3af]" />
         </div>
       </div>
 
-      <div ref={scrollRef} className="overflow-x-auto px-4 pb-4">
+      <div ref={scrollRef} className="overflow-x-auto px-4 pb-3">
         <div
           style={{ width: trackWidth, minWidth: "100%" }}
           className="relative"
         >
-          <div className="relative mb-2" style={{ height: RULER_H }}>
-            {ticks.map((sec) => (
-              <div
-                key={sec}
-                className="pointer-events-none absolute border-l border-zinc-200 pl-1 text-[10px] text-zinc-400"
-                style={{ left: sec * pixelsPerSecond }}
-              >
-                {formatTime(sec)}
+          <div className="relative" style={{ height: TRACK_H + PLAYHEAD_HANDLE_H }}>
+            <div
+              ref={trackRef}
+              className="absolute left-0 right-0 cursor-pointer overflow-hidden rounded-lg border border-[#e9d5ff] bg-[#f3e8ff]"
+              style={{
+                top: PLAYHEAD_HANDLE_H - 4,
+                height: TRACK_H,
+                width: trackWidth,
+              }}
+              onPointerDown={onTrackPointerDown}
+            >
+              <div className="pointer-events-none absolute inset-0 flex items-end gap-[2px] px-1 pb-3 opacity-80">
+                {WAVEFORM.map((h, i) => (
+                  <div
+                    key={i}
+                    className="w-[3px] shrink-0 rounded-sm bg-white"
+                    style={{ height: `${h * 72}%` }}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
 
-          <div
-            ref={trackRef}
-            className="relative cursor-pointer overflow-hidden rounded-lg bg-zinc-900"
-            style={{ height: TRACK_H, width: trackWidth }}
-            onPointerDown={onTrackPointerDown}
-          >
-            <div className="pointer-events-none absolute inset-0 flex items-end gap-[2px] px-1 pb-1 opacity-40">
-              {WAVEFORM.map((h, i) => (
-                <div
-                  key={i}
-                  className="w-[3px] shrink-0 rounded-sm bg-white"
-                  style={{ height: `${h * 80}%` }}
+              {markerLayouts.map(({ marker, left, width, thumbnail }) => (
+                <TimelineMarker
+                  key={marker.id}
+                  marker={marker}
+                  left={left}
+                  width={width}
+                  thumbnail={thumbnail}
+                  selected={marker.id === selectedId}
+                  onSelect={() => onSelect(marker.id)}
+                  onPointerDown={(e) => onMarkerPointerDown(e, marker)}
                 />
               ))}
             </div>
 
-            <div
-              className="pointer-events-none absolute inset-y-0 bg-fuchsia-300/40"
-              style={{ left: 0, width: trackWidth }}
+            <Playhead
+              left={playheadLeft}
+              timeLabel={formatTimecode(playheadLabels.episodeTime)}
+              episodeReady={episodeReady}
+              onScrubStart={onPlayheadPointerDown}
             />
-
-            {markerLayouts.map(({ marker, left, width }) => (
-              <TimelineMarker
-                key={marker.id}
-                marker={marker}
-                left={left}
-                width={width}
-                selected={marker.id === selectedId}
-                onSelect={() => onSelect(marker.id)}
-                onPointerDown={(e) => onMarkerPointerDown(e, marker)}
-              />
-            ))}
           </div>
 
-          <Playhead
-            left={playheadLeft}
-            timeLabel={formatTime(playheadLabels.episodeTime)}
-            episodeReady={episodeReady}
-            onScrubStart={onPlayheadPointerDown}
-          />
+          <div className="relative mt-1 border-t border-[#f3f4f6] pt-1" style={{ height: RULER_H }}>
+            {ticks.map((sec) => (
+              <div
+                key={sec}
+                className="pointer-events-none absolute flex flex-col items-start"
+                style={{ left: sec * pixelsPerSecond }}
+              >
+                <span className="mb-0.5 h-1.5 w-px bg-[#d1d5db]" />
+                <span className="pl-0.5 text-[10px] tabular-nums text-[#9ca3af]">
+                  {formatTimecode(sec)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
