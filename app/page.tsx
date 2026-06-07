@@ -1,10 +1,14 @@
 "use client";
 
+import { AbTestResultsModal } from "@/components/AbTestResultsModal";
 import { AdPickerModal } from "@/components/AdPickerModal";
-import { Header } from "@/components/Header";
+import { CreateMarkerModal } from "@/components/CreateMarkerModal";
+import { EpisodeHeader } from "@/components/EpisodeHeader";
 import { MarkerPanel } from "@/components/MarkerPanel";
+import { PageFooter } from "@/components/PageFooter";
 import { Sidebar } from "@/components/Sidebar";
 import { Timeline } from "@/components/Timeline";
+import { TopBar } from "@/components/TopBar";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useProbeDurations } from "@/hooks/useProbeDurations";
@@ -15,11 +19,8 @@ import { buildTimeline, episodeMarkerToTimeline } from "@/lib/playback";
 import { getPlayheadLabels } from "@/lib/timeline-mapping";
 import { syncMarkersToServer } from "@/lib/sync-markers";
 import type { Ad, AdMarker, AdMode } from "@/lib/types";
-import { adIdsForModeSwitch } from "@/lib/marker-utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-
-const MODES: AdMode[] = ["static", "auto", "ab"];
 
 export default function VidpodPage() {
   const {
@@ -47,6 +48,8 @@ export default function VidpodPage() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [performance, setPerformance] = useState<Record<string, AdPerformance>>({});
   const [adPickerMarkerId, setAdPickerMarkerId] = useState<string | null>(null);
+  const [abResultsMarkerId, setAbResultsMarkerId] = useState<string | null>(null);
+  const [createMarkerOpen, setCreateMarkerOpen] = useState(false);
   const [episodeLoading, setEpisodeLoading] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const loadedRef = useRef(false);
@@ -70,6 +73,7 @@ export default function VidpodPage() {
   );
 
   const adPickerMarker = markers.find((m) => m.id === adPickerMarkerId);
+  const abResultsMarker = markers.find((m) => m.id === abResultsMarkerId);
 
   const loadPerformance = useCallback(async () => {
     const res = await fetch("/api/ad-performance");
@@ -261,13 +265,17 @@ export default function VidpodPage() {
     player.seek(episodeMarkerToTimeline(created.startTime, segments));
   };
 
-  const handleAddMarker = () => void createMarkerAt(episodeTimeAtPlayhead(), "static");
+  const handleCreateWithMode = (mode: AdMode) => {
+    setCreateMarkerOpen(false);
+    void createMarkerAt(episodeTimeAtPlayhead(), mode);
+  };
 
-  const handleRandomMarker = () => {
+  const handleAutoPlace = () => {
     if (!player.episodeReady) return;
     const dur = player.episodeDuration;
     const startTime = Math.max(5, Math.random() * Math.max(dur - 15, 10));
-    const mode = MODES[Math.floor(Math.random() * MODES.length)];
+    const modes: AdMode[] = ["static", "auto", "ab"];
+    const mode = modes[Math.floor(Math.random() * modes.length)];
     void createMarkerAt(startTime, mode);
   };
 
@@ -283,6 +291,7 @@ export default function VidpodPage() {
     markersRef.current = nextMarkers;
     if (selectedId === id) setSelectedId(null);
     if (adPickerMarkerId === id) setAdPickerMarkerId(null);
+    if (abResultsMarkerId === id) setAbResultsMarkerId(null);
     await fetch(`/api/markers/${id}`, { method: "DELETE" });
     scheduleSync();
   };
@@ -328,19 +337,6 @@ export default function VidpodPage() {
     }
   };
 
-  const handleModeChange = async (id: string, mode: AdMode) => {
-    let updated: AdMarker | undefined;
-    updateMarkers((prev) => {
-      const next = prev.map((m) => {
-        if (m.id !== id) return m;
-        return { ...m, mode, adIds: adIdsForModeSwitch(mode, m.adIds) };
-      });
-      updated = next.find((m) => m.id === id);
-      return next;
-    });
-    if (updated) await persistMarker(updated, persistGenRef.current);
-  };
-
   const handleAdIdsSave = async (adIds: string[]) => {
     if (!adPickerMarker) return;
     const normalized =
@@ -361,18 +357,20 @@ export default function VidpodPage() {
     if (updated) await persistMarker(updated, persistGenRef.current);
   };
 
+  const modalOpen = !!(adPickerMarkerId || createMarkerOpen || abResultsMarkerId);
+
   useKeyboardShortcuts(
     {
       onSpace: player.togglePlay,
       onUndo: undo,
       onRedo: redo,
     },
-    !adPickerMarkerId
+    !modalOpen
   );
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-zinc-500">
+      <div className="flex min-h-screen items-center justify-center bg-[#f3f4f6] text-[#6b7280]">
         Loading…
       </div>
     );
@@ -380,11 +378,11 @@ export default function VidpodPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-red-600">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-[#f3f4f6] text-red-600">
         <p>{error}</p>
         <button
           type="button"
-          className="rounded bg-zinc-900 px-4 py-2 text-sm text-white"
+          className="rounded-lg bg-[#111827] px-4 py-2 text-sm text-white"
           onClick={() => window.location.reload()}
         >
           Retry
@@ -394,52 +392,45 @@ export default function VidpodPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#fafafa]">
-      <Header />
+    <div className="flex min-h-screen bg-[#f4f4f5]">
+      <Sidebar
+        episodeFilename={episodeFilename}
+        podcastVideos={podcastVideos}
+        episodeLoading={episodeLoading}
+        onUploadEpisode={handleUploadEpisode}
+        onSelectEpisode={handleSelectEpisode}
+      />
 
-      <div className="flex min-h-0 flex-1">
-        <Sidebar
-          playing={player.playing}
-          episodeFilename={episodeFilename}
-          podcastVideos={podcastVideos}
-          episodeLoading={episodeLoading}
-          volume={volume}
-          onVolumeChange={setVolume}
-          onTogglePlay={player.togglePlay}
-          onUploadEpisode={handleUploadEpisode}
-          onSelectEpisode={handleSelectEpisode}
-        />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar />
 
-        <main className="flex min-w-0 flex-1 flex-col gap-4 p-6">
-          <div className="flex min-h-0 flex-1 gap-4">
+        <main className="flex min-h-0 flex-1 flex-col px-6 pb-2">
+          <EpisodeHeader episodeFilename={episodeFilename} />
+
+          <div className="mb-3 flex min-h-0 flex-1 gap-3">
             <MarkerPanel
-              adsCatalog={adsCatalog}
               markers={markers}
               selectedId={selectedId}
               episodeReady={player.episodeReady}
-              performance={performance}
               onSelect={handleSelectMarker}
-              onAdd={handleAddMarker}
-              onRandomMarker={handleRandomMarker}
+              onCreateMarker={() => setCreateMarkerOpen(true)}
+              onAutoPlace={handleAutoPlace}
+              onEdit={setAdPickerMarkerId}
+              onViewAbResults={setAbResultsMarkerId}
               onDelete={handleDelete}
-              onModeChange={handleModeChange}
-              onPickAd={setAdPickerMarkerId}
             />
             <VideoPlayer
               episodeVideoRef={player.episodeVideoRef}
               adVideoRef={player.adVideoRef}
               showingAd={player.showingAd}
               playing={player.playing}
-              episodeTime={playhead.episodeTime}
-              episodeDuration={player.episodeDuration}
               episodeReady={player.episodeReady}
               episodeLoading={episodeLoading && !player.episodeReady}
-              timelineTime={player.timelineTime}
-              totalDuration={player.totalDuration}
               inAd={playhead.inAd}
               onTogglePlay={player.togglePlay}
               onSkip={player.skip}
-              onSeek={player.seek}
+              onJumpToStart={() => player.seek(0)}
+              onJumpToEnd={() => player.seek(player.totalDuration)}
             />
           </div>
 
@@ -463,7 +454,15 @@ export default function VidpodPage() {
             onMarkerMove={handleMarkerMove}
           />
         </main>
+
+        <PageFooter />
       </div>
+
+      <CreateMarkerModal
+        open={createMarkerOpen}
+        onClose={() => setCreateMarkerOpen(false)}
+        onSelect={handleCreateWithMode}
+      />
 
       {adPickerMarker && (
         <AdPickerModal
@@ -476,6 +475,17 @@ export default function VidpodPage() {
             void handleAdIdsSave(adIds);
             if (adPickerMarker.mode === "static") setAdPickerMarkerId(null);
           }}
+        />
+      )}
+
+      {abResultsMarker && (
+        <AbTestResultsModal
+          open
+          marker={abResultsMarker}
+          ads={adsCatalog}
+          performance={performance}
+          onClose={() => setAbResultsMarkerId(null)}
+          onNewTest={() => setAdPickerMarkerId(abResultsMarker.id)}
         />
       )}
     </div>
