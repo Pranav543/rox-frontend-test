@@ -1,10 +1,10 @@
-import { createMarker, listMarkers } from "@/lib/db";
+import { createMarker, listMarkersSafe } from "@/lib/db";
 import type { AdMode, CreateMarkerBody } from "@/lib/types";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  return NextResponse.json(listMarkers());
+  return NextResponse.json(listMarkersSafe());
 }
 
 export async function POST(request: Request) {

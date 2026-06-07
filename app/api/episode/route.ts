@@ -1,4 +1,4 @@
-import { getEpisodeFilename, setEpisodeFilename } from "@/lib/db";
+import { getEpisodeFilenameSafe, setEpisodeFilename } from "@/lib/db";
 import {
   listPodcastVideos,
   mediaUrl,
@@ -8,19 +8,26 @@ import {
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const stored = getEpisodeFilename();
-  const exists = safeMediaPath(stored) !== null;
-  const filename = exists ? stored : null;
-  return NextResponse.json({
-    filename: exists ? stored : null,
-    url: exists ? mediaUrl(stored) : null,
-    exists,
-    videos: listPodcastVideos().map((v) => ({
-      ...v,
-      url: mediaUrl(v.filename),
-      exists: safeMediaPath(v.filename) !== null,
-    })),
-  });
+  try {
+    const stored = getEpisodeFilenameSafe();
+    const exists = safeMediaPath(stored) !== null;
+    return NextResponse.json({
+      filename: exists ? stored : null,
+      url: exists ? mediaUrl(stored) : null,
+      exists,
+      videos: listPodcastVideos().map((v) => ({
+        ...v,
+        url: mediaUrl(v.filename),
+        exists: safeMediaPath(v.filename) !== null,
+      })),
+    });
+  } catch (err) {
+    console.error("[api/episode] GET failed:", err);
+    return NextResponse.json(
+      { error: "Failed to load episode" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: Request) {

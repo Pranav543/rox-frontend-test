@@ -22,6 +22,8 @@
 .DS_Store
 *.pem
 data/vidpod.db
+data/vidpod.db-shm
+data/vidpod.db-wal
 data/exports/
 
 # debug
