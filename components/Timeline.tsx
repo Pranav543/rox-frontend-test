@@ -19,10 +19,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const WAVEFORM = generateWaveformBars(200);
 const MIN_PPS = 4;
 const MAX_PPS = 48;
-const TRACK_H = 112;
-const RULER_H = 24;
+const TRACK_H = 88;
+const RULER_H = 20;
 const PLAYHEAD_HANDLE_W = 18;
-const PLAYHEAD_HANDLE_H = 22;
+const PLAYHEAD_HANDLE_H = 20;
 
 type TimelineProps = {
   markers: AdMarker[];
@@ -474,7 +474,7 @@ export function Timeline({
 
   return (
     <div className="rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-      <div className="relative flex items-center border-b border-[#f3f4f6] px-4 py-2.5">
+      <div className="relative flex items-center border-b border-[#f3f4f6] px-4 py-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -517,7 +517,7 @@ export function Timeline({
         </div>
       </div>
 
-      <div ref={scrollRef} className="overflow-x-auto px-4 pb-3">
+      <div ref={scrollRef} className="overflow-x-auto px-4 pb-2">
         <div
           style={{ width: trackWidth, minWidth: "100%" }}
           className="relative"

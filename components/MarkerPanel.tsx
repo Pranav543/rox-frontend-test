@@ -32,15 +32,15 @@ export function MarkerPanel({
     episodeReady && markers.some((m) => (m.adIds?.length ?? 0) > 0);
 
   return (
-    <div className="flex w-[360px] shrink-0 flex-col rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-      <div className="flex items-center justify-between px-4 py-3">
+    <div className="flex h-full min-h-0 w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <div className="flex shrink-0 items-center justify-between px-4 py-2.5">
         <h2 className="text-[13px] font-semibold text-[#111827]">Ad markers</h2>
         <span className="text-[11px] text-[#9ca3af]">
           {markers.length} marker{markers.length === 1 ? "" : "s"}
         </span>
       </div>
 
-      <div className="flex max-h-[300px] flex-col gap-0.5 overflow-y-auto px-3 pb-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-2">
         {markers.length === 0 && (
           <p className="py-10 text-center text-sm text-[#9ca3af]">
             {episodeReady
@@ -63,7 +63,7 @@ export function MarkerPanel({
         ))}
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-[#f3f4f6] p-3">
+      <div className="flex shrink-0 flex-col gap-1.5 border-t border-[#f3f4f6] p-2.5">
         <button
           type="button"
           onClick={onCreateMarker}

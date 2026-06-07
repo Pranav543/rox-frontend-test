@@ -392,7 +392,7 @@ export default function VidpodPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f4f4f5]">
+    <div className="flex h-screen overflow-hidden bg-[#f4f4f5]">
       <Sidebar
         episodeFilename={episodeFilename}
         podcastVideos={podcastVideos}
@@ -401,13 +401,13 @@ export default function VidpodPage() {
         onSelectEpisode={handleSelectEpisode}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <TopBar />
 
-        <main className="flex min-h-0 flex-1 flex-col px-6 pb-2">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-1">
           <EpisodeHeader episodeFilename={episodeFilename} />
 
-          <div className="mb-3 flex min-h-0 flex-1 gap-3">
+          <div className="mb-2 flex min-h-0 flex-1 gap-3 overflow-hidden">
             <MarkerPanel
               markers={markers}
               selectedId={selectedId}
@@ -434,6 +434,7 @@ export default function VidpodPage() {
             />
           </div>
 
+          <div className="shrink-0">
           <Timeline
             markers={markers}
             adsCatalog={adsCatalog}
@@ -453,6 +454,7 @@ export default function VidpodPage() {
             onSelect={handleSelectMarker}
             onMarkerMove={handleMarkerMove}
           />
+          </div>
         </main>
 
         <PageFooter />

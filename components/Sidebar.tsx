@@ -57,7 +57,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex w-[248px] shrink-0 flex-col border-r border-[#e5e7eb] bg-[#fafafa]">
+    <aside className="flex h-screen w-[248px] shrink-0 flex-col overflow-y-auto border-r border-[#e5e7eb] bg-[#fafafa]">
       <div className="px-5 pt-5 pb-3">
         <VidpodLogo />
       </div>

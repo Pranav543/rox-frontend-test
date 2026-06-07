@@ -38,8 +38,8 @@ export function VideoPlayer({
   onJumpToEnd,
 }: VideoPlayerProps) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-      <div className="relative aspect-video w-full overflow-hidden rounded-t-xl bg-[#1f2937]">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-t-xl bg-[#1f2937]">
         <video
           ref={episodeVideoRef}
           className={`absolute inset-0 h-full w-full object-cover ${
@@ -73,7 +73,7 @@ export function VideoPlayer({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-1 border-t border-[#f3f4f6] px-3 py-2.5">
+      <div className="flex shrink-0 items-center justify-between gap-1 border-t border-[#f3f4f6] px-3 py-2">
         <button
           type="button"
           onClick={onJumpToStart}
