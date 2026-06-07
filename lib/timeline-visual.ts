@@ -7,25 +7,32 @@ export const MODE_COLORS: Record<
 > = {
   auto: {
     badge: "bg-[#dcfce7]",
-    track: "bg-[#86efac]/90",
-    border: "border-[#22c55e]",
+    track: "bg-[#4ade80]",
+    border: "border-[#16a34a]",
     text: "text-[#166534]",
     icon: "A",
   },
   static: {
     badge: "bg-[#dbeafe]",
-    track: "bg-[#93c5fd]/90",
-    border: "border-[#3b82f6]",
+    track: "bg-[#60a5fa]",
+    border: "border-[#2563eb]",
     text: "text-[#1e40af]",
     icon: "S",
   },
   ab: {
     badge: "bg-[#ffedd5]",
-    track: "bg-[#fdba74]/90",
-    border: "border-[#f97316]",
+    track: "bg-[#fb923c]",
+    border: "border-[#ea580c]",
     text: "text-[#9a3412]",
     icon: "A/B",
   },
+};
+
+/** Episode waveform lane — mockup lavender purple */
+export const EPISODE_LANE = {
+  bg: "bg-[#F0ABFC]",
+  border: "border-[#e879f9]",
+  bar: "bg-white/95",
 };
 
 export function generateWaveformBars(count: number, seed = 42): number[] {
