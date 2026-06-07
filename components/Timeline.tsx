@@ -4,6 +4,7 @@ import { formatTimecode } from "@/lib/format-time";
 import type { AdPerformance } from "@/lib/marker-config";
 import { resolveAdForMarker } from "@/lib/marker-config";
 import { adDurationFor, buildTimeline } from "@/lib/playback";
+import type { TimelineSegment } from "@/lib/timeline-build";
 import {
   buildTimelineExcludingMarker,
   episodeMarkerToTimeline,
@@ -11,7 +12,7 @@ import {
   getPlayheadLabels,
 } from "@/lib/timeline-mapping";
 import { mediaUrl } from "@/lib/ads";
-import { MODE_COLORS, generateWaveformBars } from "@/lib/timeline-visual";
+import { EPISODE_LANE, MODE_COLORS, generateWaveformBars } from "@/lib/timeline-visual";
 import type { Ad, AdMarker } from "@/lib/types";
 import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -52,10 +53,49 @@ type DragState = {
 
 function MarkerGrip() {
   return (
-    <div className="flex h-3 w-4 flex-wrap items-center justify-center gap-[2px] px-0.5">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-white/90" />
-      ))}
+    <div className="flex justify-center pb-1.5 pt-0.5">
+      <div className="grid w-fit grid-cols-2 gap-[2px]">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <span key={i} className="h-[3px] w-[3px] rounded-full bg-white" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EpisodeWaveformLane({
+  segment,
+  index,
+  pixelsPerSecond,
+}: {
+  segment: Extract<TimelineSegment, { type: "episode" }>;
+  index: number;
+  pixelsPerSecond: number;
+}) {
+  const width = (segment.timelineEnd - segment.timelineStart) * pixelsPerSecond;
+  const left = segment.timelineStart * pixelsPerSecond;
+  const barCount = Math.max(12, Math.floor(width / 3));
+  const bars = useMemo(
+    () => generateWaveformBars(barCount, 42 + index * 17),
+    [barCount, index]
+  );
+
+  if (width < 2) return null;
+
+  return (
+    <div
+      className={`pointer-events-none absolute top-0 overflow-hidden rounded-md border ${EPISODE_LANE.border} ${EPISODE_LANE.bg}`}
+      style={{ left, width, height: "100%" }}
+    >
+      <div className="flex h-full w-full items-end gap-px px-0.5 pb-1">
+        {bars.map((h, i) => (
+          <div
+            key={i}
+            className={`min-w-0 flex-1 rounded-[1px] ${EPISODE_LANE.bar}`}
+            style={{ height: `${Math.max(8, h * 92)}%` }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -86,8 +126,8 @@ function TimelineMarker({
       role="button"
       tabIndex={0}
       style={{ left, width: blockW, zIndex: selected ? 25 : 20 }}
-      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col justify-between rounded-md border-2 transition-[left,width] duration-200 ease-out ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
-        selected ? "ring-2 ring-white/80" : ""
+      className={`absolute top-0 flex h-full cursor-grab touch-none flex-col rounded-md border-2 transition-[left,width] duration-200 ease-out ${colors.track} ${colors.border} select-none active:cursor-grabbing ${
+        selected ? "ring-2 ring-white/90 shadow-md" : "shadow-sm"
       }`}
       onPointerDown={onPointerDown}
       onClick={(e) => {
@@ -95,24 +135,24 @@ function TimelineMarker({
         onSelect();
       }}
     >
-      <span
-        className={`m-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-[9px] font-bold shadow-sm ${colors.text}`}
-      >
-        {colors.icon}
-      </span>
-      {thumbnail && blockW > 48 ? (
-        <div className="mx-1 mb-5 overflow-hidden rounded border border-white/60 bg-black/20">
-          <video
-            className="h-8 w-full object-cover"
-            src={thumbnail}
-            muted
-            preload="metadata"
-          />
-        </div>
-      ) : (
-        <span />
-      )}
-      <div className="flex justify-center pb-0.5">
+      <div className="flex justify-center pt-1">
+        <span
+          className={`flex h-6 min-w-[24px] items-center justify-center rounded-md bg-white px-1 text-[9px] font-bold shadow-sm ${colors.text}`}
+        >
+          {colors.icon}
+        </span>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col justify-end">
+        {thumbnail && blockW > 48 ? (
+          <div className="mx-1 mb-1 overflow-hidden rounded border border-white/70 bg-black/15">
+            <video
+              className="h-7 w-full object-cover"
+              src={thumbnail}
+              muted
+              preload="metadata"
+            />
+          </div>
+        ) : null}
         <MarkerGrip />
       </div>
     </div>
@@ -161,9 +201,9 @@ function Playhead({
           className="flex w-full items-center justify-center rounded-[3px] border-2 border-[#b91c1c] bg-[#ef4444] shadow-md"
           style={{ height: PLAYHEAD_HANDLE_H }}
         >
-          <div className="grid grid-cols-2 gap-[2px] p-1">
+          <div className="grid w-fit grid-cols-2 gap-[2px]">
             {Array.from({ length: 6 }).map((_, i) => (
-              <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-white" />
+              <span key={i} className="h-[3px] w-[3px] rounded-full bg-white" />
             ))}
           </div>
         </div>
@@ -238,10 +278,31 @@ export function Timeline({
   const trackWidth = Math.max(totalDuration * pixelsPerSecond, 800);
   const playheadLeft = timelineTime * pixelsPerSecond;
 
-  const waveformBars = useMemo(() => {
-    const barCount = Math.max(80, Math.min(800, Math.floor(trackWidth / 4)));
-    return generateWaveformBars(barCount);
-  }, [trackWidth]);
+  const episodeSegments = useMemo(
+    () =>
+      segments.filter(
+        (s): s is Extract<TimelineSegment, { type: "episode" }> =>
+          s.type === "episode"
+      ),
+    [segments]
+  );
+
+  const handleZoomChange = useCallback(
+    (newPps: number) => {
+      const scroll = scrollRef.current;
+      onZoom(newPps);
+      if (scroll && episodeReady && totalDuration > 0) {
+        const playheadX = timelineTime * newPps;
+        requestAnimationFrame(() => {
+          scroll.scrollLeft = Math.max(
+            0,
+            playheadX - scroll.clientWidth / 2
+          );
+        });
+      }
+    },
+    [episodeReady, onZoom, timelineTime, totalDuration]
+  );
 
   useEffect(() => {
     if (!playing || !scrollRef.current || totalDuration <= 0) return;
@@ -485,20 +546,20 @@ export function Timeline({
             onClick={onUndo}
             disabled={!canUndo}
             title="Undo (⌘Z)"
-            className="flex items-center gap-1.5 rounded-full border border-[#e5e7eb] px-3 py-1.5 text-sm text-[#374151] disabled:opacity-30 hover:bg-[#f9fafb]"
+            aria-label="Undo"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#374151] shadow-sm disabled:opacity-30 hover:bg-[#f9fafb]"
           >
-            <Undo2 className="h-4 w-4" />
-            Undo
+            <Undo2 className="h-4 w-4" strokeWidth={1.75} />
           </button>
           <button
             type="button"
             onClick={onRedo}
             disabled={!canRedo}
             title="Redo (⌘⇧Z)"
-            className="flex items-center gap-1.5 rounded-full border border-[#e5e7eb] px-3 py-1.5 text-sm text-[#374151] disabled:opacity-30 hover:bg-[#f9fafb]"
+            aria-label="Redo"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-[#e5e7eb] bg-white text-[#374151] shadow-sm disabled:opacity-30 hover:bg-[#f9fafb]"
           >
-            <Redo2 className="h-4 w-4" />
-            Redo
+            <Redo2 className="h-4 w-4" strokeWidth={1.75} />
           </button>
         </div>
 
@@ -513,7 +574,7 @@ export function Timeline({
             min={MIN_PPS}
             max={MAX_PPS}
             value={pixelsPerSecond}
-            onChange={(e) => onZoom(Number(e.target.value))}
+            onChange={(e) => handleZoomChange(Number(e.target.value))}
             className="flex-1"
             aria-label="Timeline zoom"
           />
@@ -529,7 +590,7 @@ export function Timeline({
           <div className="relative" style={{ height: TRACK_H + PLAYHEAD_HANDLE_H }}>
             <div
               ref={trackRef}
-              className="absolute left-0 right-0 cursor-pointer overflow-hidden rounded-lg border border-[#e9d5ff] bg-[#f3e8ff]"
+              className="absolute left-0 right-0 cursor-pointer overflow-hidden rounded-lg border border-[#e5e7eb] bg-[#f9fafb]"
               style={{
                 top: PLAYHEAD_HANDLE_H - 4,
                 height: TRACK_H,
@@ -537,15 +598,14 @@ export function Timeline({
               }}
               onPointerDown={onTrackPointerDown}
             >
-              <div className="pointer-events-none absolute inset-0 flex w-full items-end gap-px px-1 pb-3 opacity-80">
-                {waveformBars.map((h, i) => (
-                  <div
-                    key={i}
-                    className="min-w-0 flex-1 rounded-sm bg-white"
-                    style={{ height: `${h * 72}%` }}
-                  />
-                ))}
-              </div>
+              {episodeSegments.map((seg, i) => (
+                <EpisodeWaveformLane
+                  key={`${seg.timelineStart}-${seg.episodeStart}`}
+                  segment={seg}
+                  index={i}
+                  pixelsPerSecond={pixelsPerSecond}
+                />
+              ))}
 
               {markerLayouts.map(({ marker, left, width, thumbnail }) => (
                 <TimelineMarker
