@@ -1,24 +1,27 @@
 "use client";
 
-import { formatTime } from "@/lib/format-time";
-import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
-import { RefObject, useCallback, useRef } from "react";
+import {
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  SkipBack,
+  SkipForward,
+} from "lucide-react";
+import { RefObject } from "react";
 
 type VideoPlayerProps = {
   episodeVideoRef: RefObject<HTMLVideoElement | null>;
   adVideoRef: RefObject<HTMLVideoElement | null>;
   showingAd: boolean;
   playing: boolean;
-  episodeTime: number;
-  episodeDuration: number;
   episodeReady: boolean;
   episodeLoading?: boolean;
-  timelineTime: number;
-  totalDuration: number;
   inAd: boolean;
   onTogglePlay: () => void;
   onSkip: (delta: number) => void;
-  onSeek: (t: number) => void;
+  onJumpToStart: () => void;
+  onJumpToEnd: () => void;
 };
 
 export function VideoPlayer({
@@ -26,64 +29,20 @@ export function VideoPlayer({
   adVideoRef,
   showingAd,
   playing,
-  episodeTime,
-  episodeDuration,
   episodeReady,
   episodeLoading = false,
-  timelineTime,
-  totalDuration,
   inAd,
   onTogglePlay,
   onSkip,
-  onSeek,
+  onJumpToStart,
+  onJumpToEnd,
 }: VideoPlayerProps) {
-  const sliderRef = useRef<HTMLDivElement>(null);
-
-  const pct = totalDuration > 0 ? (timelineTime / totalDuration) * 100 : 0;
-
-  const seekFromClientX = useCallback(
-    (clientX: number) => {
-      const el = sliderRef.current;
-      if (!el || totalDuration <= 0) return;
-      const rect = el.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      onSeek(ratio * totalDuration);
-    },
-    [onSeek, totalDuration]
-  );
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const el = sliderRef.current;
-    if (!el || totalDuration <= 0) return;
-
-    el.setPointerCapture(e.pointerId);
-    seekFromClientX(e.clientX);
-
-    const onMove = (ev: PointerEvent) => seekFromClientX(ev.clientX);
-
-    const onUp = (ev: PointerEvent) => {
-      try {
-        el.releasePointerCapture(ev.pointerId);
-      } catch {
-        /* ok */
-      }
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  };
-
   return (
-    <div className="flex flex-1 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <div className="relative flex-1 overflow-hidden rounded-t-2xl bg-black">
+    <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <div className="relative aspect-video w-full overflow-hidden rounded-t-xl bg-[#1f2937]">
         <video
           ref={episodeVideoRef}
-          className={`absolute inset-0 h-full w-full object-contain ${
+          className={`absolute inset-0 h-full w-full object-cover ${
             showingAd ? "pointer-events-none opacity-0" : ""
           }`}
           muted={showingAd}
@@ -94,7 +53,7 @@ export function VideoPlayer({
         />
         <video
           ref={adVideoRef}
-          className={`absolute inset-0 h-full w-full object-contain ${
+          className={`absolute inset-0 h-full w-full object-cover ${
             showingAd ? "" : "pointer-events-none opacity-0"
           }`}
           playsInline
@@ -103,81 +62,92 @@ export function VideoPlayer({
           onClick={onTogglePlay}
         />
         {(!episodeReady || episodeLoading) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white">
-            <p className="text-sm font-medium">
-              {episodeLoading ? "Loading video…" : "Upload a main video to get started"}
-            </p>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[13px] text-white">
+            {episodeLoading ? "Loading video…" : "Upload a main video to get started"}
           </div>
         )}
         {inAd && episodeReady && (
-          <span className="absolute left-3 top-3 z-10 rounded bg-orange-500/90 px-2 py-1 text-xs font-medium text-white">
+          <span className="absolute left-3 top-3 rounded-md bg-[#ea580c]/90 px-2 py-0.5 text-[11px] font-medium text-white">
             Ad break
           </span>
         )}
       </div>
 
-      <div className="flex items-center gap-4 border-t border-zinc-200 px-5 py-4">
+      <div className="flex items-center justify-between gap-1 border-t border-[#f3f4f6] px-3 py-2.5">
         <button
           type="button"
-          onClick={() => onSkip(-10)}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-300 hover:bg-zinc-50"
-          aria-label="Back 10 seconds"
-          title="Back 10 seconds"
+          onClick={onJumpToStart}
+          disabled={!episodeReady}
+          className="flex items-center gap-1 rounded-lg border border-[#e5e7eb] px-2 py-1.5 text-[11px] font-medium text-[#6b7280] hover:bg-[#f9fafb] disabled:opacity-40"
+          aria-label="Jump to start"
         >
-          <SkipBack className="h-4 w-4" />
+          <SkipBack className="h-3.5 w-3.5" />
+          Jump to start
         </button>
 
-        <button
-          type="button"
-          onClick={onTogglePlay}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-300 hover:bg-zinc-50"
-          aria-label={playing ? "Pause" : "Play"}
-          title={playing ? "Pause" : "Play"}
-        >
-          {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 pl-0.5" />}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSkip(10)}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-300 hover:bg-zinc-50"
-          aria-label="Forward 10 seconds"
-          title="Forward 10 seconds"
-        >
-          <SkipForward className="h-4 w-4" />
-        </button>
-
-        <div
-          ref={sliderRef}
-          className="relative mx-2 h-2 flex-1 cursor-pointer rounded-full bg-zinc-200"
-          onPointerDown={onPointerDown}
-          role="slider"
-          aria-valuemin={0}
-          aria-valuemax={totalDuration}
-          aria-valuenow={timelineTime}
-          aria-label="Playback position"
-        >
-          <div
-            className="absolute left-0 top-0 h-full rounded-full bg-zinc-800"
-            style={{ width: `${pct}%` }}
-          />
-          <div
-            className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-zinc-300 bg-white shadow"
-            style={{ left: `${pct}%` }}
-          />
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => onSkip(-10)}
+            disabled={!episodeReady}
+            className="flex flex-col items-center rounded-lg px-2 py-0.5 text-[#6b7280] hover:bg-[#f9fafb] disabled:opacity-40"
+            aria-label="Back 10 seconds"
+          >
+            <RotateCcw className="h-4 w-4" strokeWidth={1.5} />
+            <span className="text-[9px] font-semibold">10s</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSkip(-30)}
+            disabled={!episodeReady}
+            className="rounded-lg p-1.5 text-[#6b7280] hover:bg-[#f9fafb] disabled:opacity-40"
+            aria-label="Rewind"
+          >
+            <SkipBack className="h-4 w-4" strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            onClick={onTogglePlay}
+            disabled={!episodeReady}
+            className="mx-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-[#e5e7eb] bg-white shadow-sm hover:bg-[#f9fafb] disabled:opacity-40"
+            aria-label={playing ? "Pause" : "Play"}
+          >
+            {playing ? (
+              <Pause className="h-4 w-4" fill="currentColor" />
+            ) : (
+              <Play className="h-4 w-4 pl-0.5" fill="currentColor" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => onSkip(30)}
+            disabled={!episodeReady}
+            className="rounded-lg p-1.5 text-[#6b7280] hover:bg-[#f9fafb] disabled:opacity-40"
+            aria-label="Fast forward"
+          >
+            <SkipForward className="h-4 w-4" strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onSkip(10)}
+            disabled={!episodeReady}
+            className="flex flex-col items-center rounded-lg px-2 py-0.5 text-[#6b7280] hover:bg-[#f9fafb] disabled:opacity-40"
+            aria-label="Forward 10 seconds"
+          >
+            <RotateCw className="h-4 w-4" strokeWidth={1.5} />
+            <span className="text-[9px] font-semibold">10s</span>
+          </button>
         </div>
 
-        <div className="shrink-0 text-right font-mono text-sm tabular-nums text-zinc-600">
-          <div>
-            {formatTime(timelineTime)}
-            {totalDuration > 0 ? ` / ${formatTime(totalDuration)}` : ""}
-          </div>
-          <div className="text-xs text-zinc-400">
-            Episode {formatTime(episodeTime)}
-            {episodeDuration > 0 ? ` / ${formatTime(episodeDuration)}` : ""}
-            {!episodeReady ? " · loading…" : inAd ? " · ad" : ""}
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={onJumpToEnd}
+          disabled={!episodeReady}
+          className="flex items-center gap-1 rounded-lg border border-[#e5e7eb] px-2 py-1.5 text-[11px] font-medium text-[#6b7280] hover:bg-[#f9fafb] disabled:opacity-40"
+        >
+          Jump to end
+          <SkipForward className="h-3 w-3" />
+        </button>
       </div>
     </div>
   );
