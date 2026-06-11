@@ -50,6 +50,8 @@ export default function VidpodPage() {
   const [adPickerMarkerId, setAdPickerMarkerId] = useState<string | null>(null);
   const [abResultsMarkerId, setAbResultsMarkerId] = useState<string | null>(null);
   const [createMarkerOpen, setCreateMarkerOpen] = useState(false);
+  const editorStackRef = useRef<HTMLDivElement>(null);
+  const [timelineMaxCardHeight, setTimelineMaxCardHeight] = useState<number>();
   const [episodeLoading, setEpisodeLoading] = useState(false);
   const [volume, setVolume] = useState(0.85);
   const loadedRef = useRef(false);
@@ -142,6 +144,23 @@ export default function VidpodPage() {
     if (ep) ep.volume = volume;
     if (ad) ad.volume = volume;
   }, [volume, player.episodeVideoRef, player.adVideoRef, player.episodeReady]);
+
+  useEffect(() => {
+    const stack = editorStackRef.current;
+    if (!stack) return;
+
+    const updateTimelineHeight = () => {
+      const gap = 8;
+      const minPlayerRow = 160;
+      const available = stack.clientHeight - minPlayerRow - gap;
+      if (available > 0) setTimelineMaxCardHeight(available);
+    };
+
+    updateTimelineHeight();
+    const ro = new ResizeObserver(updateTimelineHeight);
+    ro.observe(stack);
+    return () => ro.disconnect();
+  }, []);
 
   const persistMarker = useCallback(async (marker: AdMarker, gen: number) => {
     const res = await fetch(`/api/markers/${marker.id}`, {
@@ -407,53 +426,59 @@ export default function VidpodPage() {
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-1">
           <EpisodeHeader episodeFilename={episodeFilename} />
 
-          <div className="mb-2 flex min-h-0 flex-1 gap-3 overflow-hidden">
-            <MarkerPanel
-              markers={markers}
-              selectedId={selectedId}
-              episodeReady={player.episodeReady}
-              onSelect={handleSelectMarker}
-              onCreateMarker={() => setCreateMarkerOpen(true)}
-              onAutoPlace={handleAutoPlace}
-              onEdit={setAdPickerMarkerId}
-              onViewAbResults={setAbResultsMarkerId}
-              onDelete={handleDelete}
-            />
-            <VideoPlayer
-              episodeVideoRef={player.episodeVideoRef}
-              adVideoRef={player.adVideoRef}
-              showingAd={player.showingAd}
-              playing={player.playing}
-              episodeReady={player.episodeReady}
-              episodeLoading={episodeLoading && !player.episodeReady}
-              inAd={playhead.inAd}
-              onTogglePlay={player.togglePlay}
-              onSkip={player.skip}
-              onJumpToStart={() => player.seek(0)}
-              onJumpToEnd={() => player.seek(player.totalDuration)}
-            />
-          </div>
+          <div
+            ref={editorStackRef}
+            className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
+          >
+            <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+              <MarkerPanel
+                markers={markers}
+                selectedId={selectedId}
+                episodeReady={player.episodeReady}
+                onSelect={handleSelectMarker}
+                onCreateMarker={() => setCreateMarkerOpen(true)}
+                onAutoPlace={handleAutoPlace}
+                onEdit={setAdPickerMarkerId}
+                onViewAbResults={setAbResultsMarkerId}
+                onDelete={handleDelete}
+              />
+              <VideoPlayer
+                episodeVideoRef={player.episodeVideoRef}
+                adVideoRef={player.adVideoRef}
+                showingAd={player.showingAd}
+                playing={player.playing}
+                episodeReady={player.episodeReady}
+                episodeLoading={episodeLoading && !player.episodeReady}
+                inAd={playhead.inAd}
+                onTogglePlay={player.togglePlay}
+                onSkip={player.skip}
+                onJumpToStart={() => player.seek(0)}
+                onJumpToEnd={() => player.seek(player.totalDuration)}
+              />
+            </div>
 
-          <div className="shrink-0">
-          <Timeline
-            markers={markers}
-            adsCatalog={adsCatalog}
-            episodeDuration={player.episodeDuration}
-            episodeReady={player.episodeReady}
-            playing={player.playing}
-            performance={performance}
-            timelineTime={player.timelineTime}
-            selectedId={selectedId}
-            pixelsPerSecond={pixelsPerSecond}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onUndo={undo}
-            onRedo={redo}
-            onZoom={setPixelsPerSecond}
-            onSeek={player.seek}
-            onSelect={handleSelectMarker}
-            onMarkerMove={handleMarkerMove}
-          />
+            <div className="w-full min-h-0 shrink">
+              <Timeline
+                maxCardHeight={timelineMaxCardHeight}
+                markers={markers}
+                adsCatalog={adsCatalog}
+                episodeDuration={player.episodeDuration}
+                episodeReady={player.episodeReady}
+                playing={player.playing}
+                performance={performance}
+                timelineTime={player.timelineTime}
+                selectedId={selectedId}
+                pixelsPerSecond={pixelsPerSecond}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={undo}
+                onRedo={redo}
+                onZoom={setPixelsPerSecond}
+                onSeek={player.seek}
+                onSelect={handleSelectMarker}
+                onMarkerMove={handleMarkerMove}
+              />
+            </div>
           </div>
         </main>
 
