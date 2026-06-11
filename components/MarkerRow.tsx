@@ -47,12 +47,12 @@ export function MarkerRow({
     >
       <span className="text-center text-[13px] font-medium text-[#9ca3af]">{index}</span>
 
-      <div className="rounded-md border border-[#e5e7eb] bg-white px-2 py-1.5 text-center text-[13px] tabular-nums text-[#111827]">
+      <div className="rounded-sm border border-[#e5e7eb] bg-white px-2 py-1.5 text-center text-[13px] tabular-nums text-[#111827]">
         {formatTimecode(marker.startTime)}
       </div>
 
       <span
-        className={`inline-flex w-fit rounded-md px-2.5 py-1 text-[11px] font-semibold ${colors.badge} ${colors.text}`}
+        className={`inline-flex w-fit rounded-sm px-2.5 py-1 text-[11px] font-semibold ${colors.badge} ${colors.text}`}
       >
         {MODE_LABELS[marker.mode]}
       </span>
@@ -64,7 +64,7 @@ export function MarkerRow({
             e.stopPropagation();
             onViewAbResults();
           }}
-          className="shrink-0 rounded-md border border-[#e5e7eb] bg-white px-3 py-1 text-[11px] font-medium text-[#374151] transition hover:bg-[#f9fafb]"
+          className="shrink-0 rounded-sm border border-[#e5e7eb] bg-white px-3 py-1 text-[11px] font-medium text-[#374151] transition hover:bg-[#f9fafb]"
         >
           Results
         </button>
@@ -75,7 +75,7 @@ export function MarkerRow({
             e.stopPropagation();
             onEdit();
           }}
-          className="shrink-0 rounded-md border border-[#e5e7eb] bg-white px-3 py-1 text-[11px] font-medium text-[#374151] transition hover:bg-[#f9fafb]"
+          className="shrink-0 rounded-sm border border-[#e5e7eb] bg-white px-3 py-1 text-[11px] font-medium text-[#374151] transition hover:bg-[#f9fafb]"
         >
           Edit
         </button>
@@ -87,7 +87,7 @@ export function MarkerRow({
           e.stopPropagation();
           onDelete();
         }}
-        className="flex h-8 w-8 items-center justify-center rounded-md bg-[#fef2f2] text-[#dc2626] transition hover:bg-[#fee2e2]"
+        className="flex h-8 w-8 items-center justify-center rounded-sm bg-[#fef2f2] text-[#dc2626] transition hover:bg-[#fee2e2]"
         aria-label="Delete marker"
       >
         <Trash2 className="h-3.5 w-3.5" />

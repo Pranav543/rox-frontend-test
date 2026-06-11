@@ -66,7 +66,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#111827] text-[13px] font-medium text-white transition hover:bg-[#1f2937]"
+          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-[#111827] text-[13px] font-medium text-white transition hover:bg-[#1f2937]"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
           Create an episode
@@ -80,7 +80,7 @@ export function Sidebar({
         />
 
         <div className="relative mt-2.5">
-          <div className="flex items-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-2.5 py-2">
+          <div className="flex items-center gap-2 rounded-md border border-[#e5e7eb] bg-white px-2.5 py-2">
             <div className="h-6 w-6 shrink-0 overflow-hidden rounded bg-gradient-to-br from-amber-100 to-orange-200">
               <div className="h-full w-full bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNCIgZmlsbD0iI0Y5Q0E3OCIvPjx0ZXh0IHg9IjEyIiB5PSIxNSIgZm9udC1zaXplPSI4IiBmaWxsPSIjOTI0MDAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5EPC90ZXh0Pjwvc3ZnPg==')] bg-cover" />
             </div>
@@ -129,7 +129,7 @@ export function Sidebar({
       <div className="mx-3 mt-5 rounded-xl border border-[#e5e7eb] bg-white p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         <div className="flex items-start justify-between">
           <p className="text-[11px] font-medium text-[#9ca3af]">Weekly plays</p>
-          <span className="flex items-center gap-0.5 rounded-full bg-[#ecfdf5] px-1.5 py-0.5 text-[10px] font-semibold text-[#059669]">
+          <span className="flex items-center gap-0.5 rounded-sm bg-[#ecfdf5] px-1.5 py-0.5 text-[10px] font-semibold text-[#059669]">
             ↑ 17%
           </span>
         </div>

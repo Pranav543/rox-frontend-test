@@ -121,7 +121,7 @@ export function ExportButton({ disabled, disabledReason }: Props) {
         onClick={() => void onExport()}
         disabled={blocked}
         title={title}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[#e5e7eb] bg-white px-3 py-2 text-sm font-medium text-[#374151] shadow-sm transition hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#e5e7eb] bg-white px-3 py-2 text-sm font-medium text-[#374151] shadow-sm transition hover:bg-[#f9fafb] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {exporting ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

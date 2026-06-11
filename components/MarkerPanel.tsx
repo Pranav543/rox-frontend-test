@@ -32,7 +32,7 @@ export function MarkerPanel({
     episodeReady && markers.some((m) => (m.adIds?.length ?? 0) > 0);
 
   return (
-    <div className="flex h-full min-h-0 w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+    <div className="flex h-full min-h-0 w-[min(360px,32%)] min-w-[280px] shrink-0 flex-col overflow-hidden rounded-xl border border-[#e5e7eb] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
       <div className="flex shrink-0 items-center justify-between px-4 py-2.5">
         <h2 className="text-[13px] font-semibold text-[#111827]">Ad markers</h2>
         <span className="text-[11px] text-[#9ca3af]">
@@ -68,7 +68,7 @@ export function MarkerPanel({
           type="button"
           onClick={onCreateMarker}
           disabled={!episodeReady}
-          className="flex h-9 w-full items-center justify-center gap-1 rounded-lg bg-[#111827] text-[13px] font-medium text-white transition hover:bg-[#1f2937] disabled:opacity-40"
+          className="flex h-9 w-full items-center justify-center gap-1 rounded-md bg-[#111827] text-[13px] font-medium text-white transition hover:bg-[#1f2937] disabled:opacity-40"
         >
           Create ad marker
           <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -77,7 +77,7 @@ export function MarkerPanel({
           type="button"
           onClick={onAutoPlace}
           disabled={!episodeReady}
-          className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#e5e7eb] bg-white text-[13px] font-medium text-[#374151] transition hover:bg-[#f9fafb] disabled:opacity-40"
+          className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[#e5e7eb] bg-white text-[13px] font-medium text-[#374151] transition hover:bg-[#f9fafb] disabled:opacity-40"
         >
           <Sparkles className="h-3.5 w-3.5 text-[#9ca3af]" />
           Automatically find ad breaks
