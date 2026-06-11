@@ -14,6 +14,8 @@
   --vp-ab-text: #9a3412;
   --vp-timeline: #f0abfc;
   --vp-timeline-wave: #ffffff;
+  --vp-editor-pane-ratio: 3;
+  --vp-timeline-pane-ratio: 2;
 }
 
 html,
@@ -35,4 +37,24 @@ body {
 
 input[type="range"] {
   accent-color: #111827;
+}
+
+.timeline-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.timeline-scroll::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 9999px;
+}
+
+.timeline-scroll::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 9999px;
+}
+
+.timeline-scroll {
+  scrollbar-color: #d1d5db #f3f4f6;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
